@@ -1,4 +1,4 @@
-# Program:   PLOTS Ground Station (Updated)
+# Program:   PLOTS Ground Station (Low Latency)
 # Author:    [Your Name]
 # Module:    Telemetry Visualization
 # Description: Visualizes High-Speed LoRa Packets via UART
@@ -13,12 +13,12 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 
 # --- CONFIGURATION ---
-SERIAL_PORT = "/dev/ttyAMA0" # CHANGE TO COMPORT IF ON WINDOWS (e.g., "COM3")
+# Pi Default: /dev/ttyAMA0 | Windows Default: COMx
+SERIAL_PORT = "/dev/ttyAMA0" 
 BAUD_RATE = 115200
-INTERVAL_MS = 30 
+INTERVAL_MS = 30  # Update GUI every 30ms
 
 # --- UNITS DEFINITION ---
-# Matches the new 9-column CSV format + Generated Time
 UNITS = {
     "T": "s",          # Local Computer Time
     "Alt": "m",
@@ -70,11 +70,14 @@ class PlotLive3D(FigureCanvas):
         self.ax.set_xlabel("Time (s)")
         self.ax.set_ylabel("Altitude (m)")
         self.ax.set_zlabel("Velocity (m/s)")
-        # Plot trajectory
+        
+        # Plot trajectory line
         self.ax.plot(self.times, self.altitudes, self.velocities, lw=1, c='gray')
-        # Plot current point
+        
+        # Plot distinct dot for current position
         if self.times:
-            self.ax.scatter([self.times[-1]], [self.altitudes[-1]], [self.velocities[-1]], c='red', s=20)
+            self.ax.scatter([self.times[-1]], [self.altitudes[-1]], [self.velocities[-1]], c='red', s=30)
+            
         self.draw_idle()
 
 class PLOTSGroundStation(QMainWindow):
@@ -90,8 +93,11 @@ class PLOTSGroundStation(QMainWindow):
                 baudrate=BAUD_RATE,
                 timeout=0.05
             )
+            # Clear any garbage currently in buffer
+            self.ser.reset_input_buffer()
+            print(f"Connected to {SERIAL_PORT}")
         except serial.SerialException as e:
-            print(f"Error opening serial port: {e}")
+            print(f"CRITICAL ERROR: Could not open serial port: {e}")
             sys.exit(1)
 
         # Data Storage
@@ -148,7 +154,7 @@ class PLOTSGroundStation(QMainWindow):
         unit = UNITS.get(var, "")
         self.plot2D_top.ax.set_ylabel(f"{var} ({unit})")
         self.plot2D_top.ax.set_title(f"{var} vs Time")
-        # Clear data on switch to avoid scale issues
+        # Clear data to reset scale
         self.plot2D_top.times = []
         self.plot2D_top.values = []
 
@@ -161,21 +167,41 @@ class PLOTSGroundStation(QMainWindow):
         self.plot2D_bottom.values = []
 
     def readNextPacket(self):
-        try:
-            line = self.ser.readline().decode("ascii", errors="ignore").strip()
-            if not line:
-                return
-            
-            # Debug: Print raw line to console
-            print(f"RAW: {line}") 
+        """
+        CRITICAL FIX: Drains the serial buffer to prevent lag.
+        Only processes the absolute latest packet available.
+        """
+        if self.ser.in_waiting == 0:
+            return
 
-            values = line.split(",")
+        last_valid_line = None
+        
+        # --- BUFFER DRAIN LOOP ---
+        # Read ALL lines currently in the hardware buffer
+        # This allows us to skip data from 5 seconds ago and get NOW data
+        while self.ser.in_waiting > 0:
+            try:
+                raw = self.ser.readline()
+                decoded = raw.decode("ascii", errors="ignore").strip()
+                if "," in decoded:
+                    last_valid_line = decoded
+            except Exception:
+                pass
+        
+        # If the buffer only contained garbage, exit
+        if last_valid_line is None:
+            return
+
+        # --- PROCESS LATEST PACKET ---
+        try:
+            print(f"LATEST: {last_valid_line}") # Debug
             
-            # Expecting 9 columns based on new Arduino code
+            values = last_valid_line.split(",")
+            
+            # Must have 9 columns (Alt, Vel, Lat, Lon, qR, qI, qJ, qK, RSSI)
             if len(values) != 9:
                 return
 
-            # Create local timestamp (since Arduino isn't sending one)
             current_t = time.time() - self.start_time
 
             packet = {
@@ -194,28 +220,30 @@ class PLOTSGroundStation(QMainWindow):
         except ValueError:
             return
 
-        # Update Top Plot
+        # --- UPDATE PLOTS ---
+        # Note: Keeping history limit (e.g., 150) prevents the Pi from slowing down
+        
+        # Top Plot
         self.plot2D_top.times.append(packet["T"])
         self.plot2D_top.values.append(packet[self.var_top])
-        # Keep buffer size manageable (optional, remove if you want full history)
-        if len(self.plot2D_top.times) > 500:
+        if len(self.plot2D_top.times) > 150:
             self.plot2D_top.times.pop(0)
             self.plot2D_top.values.pop(0)
         self.plot2D_top.updatePlot()
 
-        # Update Bottom Plot
+        # Bottom Plot
         self.plot2D_bottom.times.append(packet["T"])
         self.plot2D_bottom.values.append(packet[self.var_bottom])
-        if len(self.plot2D_bottom.times) > 500:
+        if len(self.plot2D_bottom.times) > 150:
             self.plot2D_bottom.times.pop(0)
             self.plot2D_bottom.values.pop(0)
         self.plot2D_bottom.updatePlot()
 
-        # Update 3D Plot (Always Alt vs Veloc vs Time)
+        # 3D Plot
         self.plot3D.times.append(packet["T"])
         self.plot3D.altitudes.append(packet["Alt"])
         self.plot3D.velocities.append(packet["Veloc"])
-        if len(self.plot3D.times) > 500:
+        if len(self.plot3D.times) > 150:
             self.plot3D.times.pop(0)
             self.plot3D.altitudes.pop(0)
             self.plot3D.velocities.pop(0)
