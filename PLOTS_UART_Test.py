@@ -11,7 +11,7 @@ from collections import deque
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpacerItem, QSizePolicy
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QPixmap
-from matplotlib.backends.backend_qt5agg aimport FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -160,17 +160,17 @@ class PLOTSGroundStation(QMainWindow):
             lbl.setStyleSheet("color: white; font-weight: bold;")
 
         self.image_label1 = QLabel()
-        pixmap1 = QPixmap("/home/admin/PLOTS-DEV/unityrise_logo.png")
+        pixmap1 = QPixmap("/home/admin/pl26-groundstation/Assets/unityrise_logo.png")
         self.image_label1.setPixmap(pixmap1.scaled(100, 100, Qt.KeepAspectRatio))
         self.image_label1.setAlignment(Qt.AlignTop | Qt.AlignRight)
 
         self.image_label2 = QLabel()
-        pixmap2 = QPixmap("/home/admin/PLOTS-DEV/uol_logo.png")
+        pixmap2 = QPixmap("/home/admin/pl26-groundstation/Assets/uol_logo.png")
         self.image_label2.setPixmap(pixmap2.scaled(200, 200, Qt.KeepAspectRatio))
         self.image_label2.setAlignment(Qt.AlignTop | Qt.AlignCenter)
 
         self.image_label3 = QLabel()
-        pixmap3 = QPixmap("/home/admin/PLOTS-DEV/LASER_Logo.png")
+        pixmap3 = QPixmap("/home/admin/pl26-groundstation/Assets/LASER_Logo.png")
         self.image_label3.setPixmap(pixmap3.scaled(100, 100, Qt.KeepAspectRatio))
         self.image_label3.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
