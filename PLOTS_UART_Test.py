@@ -81,28 +81,23 @@ class PlotLive3D(FigureCanvas):
             return
 
         self.ax.clear()
-        self.ax.set_title("Live Flight Path Analysis", pad=4, color="#212b58", fontweight="bold")
-        self.ax.set_xlabel("Time (s)", labelpad=4.)
-        self.ax.set_ylabel("Altitude (m)", labelpad=4)
-        self.ax.set_zlabel("Velocity (m/s)", labelpad=4)
+        self.ax.set_title(
+            "Live Flight Path Analysis",
+            pad=4,
+            color="#212b58",
+            fontweight="bold"
+        )
+        self.ax.set_xlabel("Time (s)")
+        self.ax.set_ylabel("Altitude (m)")
+        self.ax.set_zlabel("Velocity (m/s)")
 
         self.ax.plot(self.times, self.altitudes, self.velocities, lw=1)
-
         self.ax.scatter(
             [self.times[-1]],
             [self.altitudes[-1]],
             [self.velocities[-1]],
             s=30
         )
-
-        self.ax.set_xlim(min(self.times), max(self.times))
-        self.ax.set_ylim(min(self.altitudes), max(self.altitudes))
-        self.ax.set_zlim(min(self.velocities), max(self.velocities))
-
-        try:
-            self.ax.set_box_aspect((1, 1, 0.7))
-        except Exception:
-            pass
 
         self.draw_idle()
 
@@ -112,6 +107,17 @@ class PLOTSGroundStation(QMainWindow):
         super().__init__()
         self.setWindowTitle("LASER Mission Control - PLOTS Ground Station")
         self.resize(1200, 700)
+
+        self.title_banner = QLabel("LASER – Mission Control PL-26")
+        self.title_banner.setAlignment(Qt.AlignCenter)
+        self.title_banner.setFixedHeight(45)
+        self.title_banner.setStyleSheet(
+            "background-color: #212b58;"
+            "color: white;"
+            "font-size: 18px;"
+            "font-weight: bold;"
+            "letter-spacing: 1px;"
+        )
 
         try:
             self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
@@ -131,6 +137,10 @@ class PLOTSGroundStation(QMainWindow):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color: red; font-weight: bold;")
 
+        self.armed_label = QLabel("Status: Disarmed")
+        self.armed_label.setAlignment(Qt.AlignCenter)
+        self.armed_label.setStyleSheet("color: green; font-weight: bold;")
+
         self.rate_label = QLabel("Rate: 0.0 Hz")
         self.lat_label = QLabel("Latitude: ---")
         self.lon_label = QLabel("Longitude: ---")
@@ -139,6 +149,10 @@ class PLOTSGroundStation(QMainWindow):
         self.alt_label = QLabel("Alt: --- m")
         self.alt_label.setAlignment(Qt.AlignCenter)
         self.alt_label.setStyleSheet("color: #212b58; font-weight: bold;")
+
+        self.phase_label = QLabel("Phase Of Flight: Test")
+        self.phase_label.setAlignment(Qt.AlignCenter)
+        self.phase_label.setStyleSheet("color: #212b58; font-weight: bold;")
 
         for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
             lbl.setStyleSheet("color: #212b58; font-weight: bold;")
@@ -152,50 +166,48 @@ class PLOTSGroundStation(QMainWindow):
         self.combo_top.setCurrentText("Alt")
         self.combo_bottom.setCurrentText("RSSI")
 
-        self.combo_top.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
-        self.combo_bottom.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
-
         self.combo_top.currentTextChanged.connect(self.changeTopVariable)
         self.combo_bottom.currentTextChanged.connect(self.changeBottomVariable)
 
-        self.var_top = "Alt"
-        self.var_bottom = "RSSI"
-
-        top_label = QLabel("Top Plot Variable:")
-        bottom_label = QLabel("Bottom Plot Variable:")
-        for lbl in [top_label, bottom_label]:
-            lbl.setStyleSheet("color: #212b58; font-weight: bold;")
+        self.combo_top.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
+        self.combo_bottom.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
 
         self.image_label1 = QLabel()
-        pixmap1 = QPixmap("/home/admin/pl26-groundstation/Assets/unityrise_logo.png")
-        self.image_label1.setPixmap(pixmap1.scaled(100, 100, Qt.KeepAspectRatio))
-        self.image_label1.setAlignment(Qt.AlignTop | Qt.AlignCenter)
+        self.image_label1.setPixmap(QPixmap(
+            "/home/admin/pl26-groundstation/Assets/unityrise_logo.png"
+        ).scaled(100, 100, Qt.KeepAspectRatio))
+        self.image_label1.setAlignment(Qt.AlignCenter)
 
         self.image_label2 = QLabel()
-        pixmap2 = QPixmap("/home/admin/pl26-groundstation/Assets/uol_logo.png")
-        self.image_label2.setPixmap(pixmap2.scaled(200, 200, Qt.KeepAspectRatio))
-        self.image_label2.setAlignment(Qt.AlignTop | Qt.AlignCenter)
+        self.image_label2.setPixmap(QPixmap(
+            "/home/admin/pl26-groundstation/Assets/uol_logo.png"
+        ).scaled(200, 200, Qt.KeepAspectRatio))
+        self.image_label2.setAlignment(Qt.AlignCenter)
 
         self.image_label3 = QLabel()
-        pixmap3 = QPixmap("/home/admin/pl26-groundstation/Assets/LASER_Logo.png")
-        self.image_label3.setPixmap(pixmap3.scaled(100, 100, Qt.KeepAspectRatio))
-        self.image_label3.setAlignment(Qt.AlignTop | Qt.AlignCenter)
+        self.image_label3.setPixmap(QPixmap(
+            "/home/admin/pl26-groundstation/Assets/LASER_Logo.png"
+        ).scaled(100, 100, Qt.KeepAspectRatio))
+        self.image_label3.setAlignment(Qt.AlignCenter)
 
-        right_layout = QVBoxLayout()
-        right_widget = QWidget()
-        right_widget.setLayout(right_layout)
-
-        images_layout = QHBoxLayout()
-        images_layout.addWidget(self.image_label3)
-        images_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
-        images_layout.addWidget(self.image_label2)
-        images_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
+        laser_layout = QVBoxLayout()
+        laser_layout.addWidget(self.image_label3)
+        laser_layout.addWidget(self.phase_label)
 
         unity_layout = QVBoxLayout()
         unity_layout.addWidget(self.image_label1)
         unity_layout.addWidget(self.alt_label)
+
+        uol_layout = QVBoxLayout()
+        uol_layout.addWidget(self.image_label2)
+        uol_layout.addWidget(self.armed_label)
+
+        images_layout = QHBoxLayout()
+        images_layout.addLayout(laser_layout)
+        images_layout.addLayout(uol_layout)
         images_layout.addLayout(unity_layout)
 
+        right_layout = QVBoxLayout()
         right_layout.addLayout(images_layout)
         right_layout.addWidget(self.plot3D)
 
@@ -211,19 +223,23 @@ class PLOTSGroundStation(QMainWindow):
         right_layout.addLayout(bottom_status)
 
         left_layout = QVBoxLayout()
-        left_layout.addWidget(top_label)
+        left_layout.addWidget(QLabel("Top Plot Variable:"))
         left_layout.addWidget(self.combo_top)
         left_layout.addWidget(self.plot2D_top)
-        left_layout.addWidget(bottom_label)
+        left_layout.addWidget(QLabel("Bottom Plot Variable:"))
         left_layout.addWidget(self.combo_bottom)
         left_layout.addWidget(self.plot2D_bottom)
 
         main_layout = QHBoxLayout()
         main_layout.addLayout(left_layout, 2)
-        main_layout.addWidget(right_widget, 3)
+        main_layout.addLayout(right_layout, 3)
+
+        root_layout = QVBoxLayout()
+        root_layout.addWidget(self.title_banner)
+        root_layout.addLayout(main_layout)
 
         central = QWidget()
-        central.setLayout(main_layout)
+        central.setLayout(root_layout)
         central.setStyleSheet("background-color: #FFFFFF;")
         self.setCentralWidget(central)
 
@@ -233,11 +249,9 @@ class PLOTSGroundStation(QMainWindow):
         self.timer.start(INTERVAL_MS)
 
     def changeTopVariable(self, var):
-        self.var_top = var
         self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
 
     def changeBottomVariable(self, var):
-        self.var_bottom = var
         self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
 
     def updateConnectionStatus(self):
@@ -246,11 +260,8 @@ class PLOTSGroundStation(QMainWindow):
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
             self.rate_label.setText("Rate: 0.0 Hz")
 
-    def updateRate(self):
-        now = time.time()
-        while self.packet_times and now - self.packet_times[0] > 1.0:
-            self.packet_times.popleft()
-        self.rate_label.setText(f"Rate: {len(self.packet_times):.1f} Hz")
+            self.armed_label.setText("Status: Disarmed")
+            self.armed_label.setStyleSheet("color: green; font-weight: bold;")
 
     def readNextPacket(self):
         if self.ser.in_waiting == 0:
@@ -270,6 +281,7 @@ class PLOTSGroundStation(QMainWindow):
             v = last_valid_line.split(",")
             if len(v) != 9:
                 return
+
             packet = {
                 "T": time.time() - self.start_time,
                 "Alt": float(v[0]),
@@ -289,8 +301,14 @@ class PLOTSGroundStation(QMainWindow):
         self.status_label.setText("Status: Online")
         self.status_label.setStyleSheet("color: #00ff6a; font-weight: bold;")
 
+        self.armed_label.setText("Status: Armed")
+        self.armed_label.setStyleSheet("color: red; font-weight: bold;")
+
         self.packet_times.append(self.last_packet_time)
-        self.updateRate()
+        now = time.time()
+        while self.packet_times and now - self.packet_times[0] > 1.0:
+            self.packet_times.popleft()
+        self.rate_label.setText(f"Rate: {len(self.packet_times):.1f} Hz")
 
         self.lat_label.setText(f"Latitude: {packet['Lat']}")
         self.lon_label.setText(f"Longitude: {packet['Lon']}")
@@ -298,11 +316,11 @@ class PLOTSGroundStation(QMainWindow):
         self.alt_label.setText(f"Alt : {packet['Alt']:.2f} m")
 
         self.plot2D_top.times.append(packet["T"])
-        self.plot2D_top.values.append(packet[self.var_top])
+        self.plot2D_top.values.append(packet[self.combo_top.currentText()])
         self.plot2D_top.updatePlot()
 
         self.plot2D_bottom.times.append(packet["T"])
-        self.plot2D_bottom.values.append(packet[self.var_bottom])
+        self.plot2D_bottom.values.append(packet[self.combo_bottom.currentText()])
         self.plot2D_bottom.updatePlot()
 
         self.plot3D.times.append(packet["T"])
@@ -316,3 +334,4 @@ if __name__ == "__main__":
     window = PLOTSGroundStation()
     window.show()
     sys.exit(app.exec_())
+
