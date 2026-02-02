@@ -10,15 +10,14 @@ HTML_TEMPLATE = """
     <title>Map Interface</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-
-
+    <!-- Leaflet CSS -->
     <link
         rel="stylesheet"
-        href="Link to where the relationship variable is on the internet - FIND"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
-    <script src="Link to source file (i think this is the same link as above)"></script>
 
-
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
         html, body, #map {
@@ -26,28 +25,21 @@ HTML_TEMPLATE = """
             margin: 0;
         }
     </style>
-
-
-
-
 </head>
-<body>
 
+<body>
 <div id="map"></div>
 
 <script>
-    // Initialize map
     var map = L.map('map').setView([28.5, -80.6], 6);
 
-    // OpenStreetMap tiles
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
         attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // Rocket trajectory (lat, lon)
     var trajectory = [
-        [28.5623, -80.5774],  //launch site
+        [28.5623, -80.5774],  // Launch site (Cape Canaveral-ish)
         [29.0, -79.5],
         [30.0, -77.0],
         [31.5, -74.0],
@@ -60,27 +52,24 @@ HTML_TEMPLATE = """
         weight: 3
     }).addTo(map);
 
-    // Markers
     L.marker(trajectory[0]).addTo(map).bindPopup("Launch");
     L.marker(trajectory[trajectory.length - 1]).addTo(map).bindPopup("End Point");
 
     map.fitBounds(path.getBounds());
 </script>
-
 </body>
 </html>
 """
 
-
 class RocketMap(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Map interface")
+        self.setWindowTitle("Map Interface")
 
         self.browser = QWebEngineView()
         self.browser.setHtml(HTML_TEMPLATE)
 
-        self.setCGraph(self.browser)
+        self.setCentralWidget(self.browser)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
