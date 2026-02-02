@@ -33,6 +33,7 @@ UNITS = {
     "RSSI": "dBm"
 }
 
+
 class PlotLive2D(FigureCanvas):
     def __init__(self, title):
         self.fig = Figure(figsize=(5, 3))
@@ -64,6 +65,7 @@ class PlotLive2D(FigureCanvas):
         self.ax.autoscale_view()
         self.draw_idle()
 
+
 class PlotLive3D(FigureCanvas):
     def __init__(self):
         self.fig = Figure(figsize=(9, 7))
@@ -79,8 +81,8 @@ class PlotLive3D(FigureCanvas):
             return
 
         self.ax.clear()
-        self.ax.set_title("Flight Path Analysis", pad=4)
-        self.ax.set_xlabel("Time (s)", labelpad=4)
+        self.ax.set_title("Live Flight Path Analysis", pad=4, color="#212b58", fontweight="bold")
+        self.ax.set_xlabel("Time (s)", labelpad=4.)
         self.ax.set_ylabel("Altitude (m)", labelpad=4)
         self.ax.set_zlabel("Velocity (m/s)", labelpad=4)
 
@@ -103,6 +105,7 @@ class PlotLive3D(FigureCanvas):
             pass
 
         self.draw_idle()
+
 
 class PLOTSGroundStation(QMainWindow):
     def __init__(self):
@@ -133,8 +136,12 @@ class PLOTSGroundStation(QMainWindow):
         self.lon_label = QLabel("Longitude: ---")
         self.rssi_label = QLabel("RSSI: --- dBm")
 
+        self.alt_label = QLabel("Alt: --- m")
+        self.alt_label.setAlignment(Qt.AlignCenter)
+        self.alt_label.setStyleSheet("color: #212b58; font-weight: bold;")
+
         for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
-            lbl.setStyleSheet("color: black; font-weight: bold;")
+            lbl.setStyleSheet("color: #212b58; font-weight: bold;")
 
         vars_ = [k for k in UNITS.keys() if k != "T"]
 
@@ -157,12 +164,12 @@ class PLOTSGroundStation(QMainWindow):
         top_label = QLabel("Top Plot Variable:")
         bottom_label = QLabel("Bottom Plot Variable:")
         for lbl in [top_label, bottom_label]:
-            lbl.setStyleSheet("color: white; font-weight: bold;")
+            lbl.setStyleSheet("color: #212b58; font-weight: bold;")
 
         self.image_label1 = QLabel()
         pixmap1 = QPixmap("/home/admin/pl26-groundstation/Assets/unityrise_logo.png")
         self.image_label1.setPixmap(pixmap1.scaled(100, 100, Qt.KeepAspectRatio))
-        self.image_label1.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        self.image_label1.setAlignment(Qt.AlignTop | Qt.AlignCenter)
 
         self.image_label2 = QLabel()
         pixmap2 = QPixmap("/home/admin/pl26-groundstation/Assets/uol_logo.png")
@@ -172,10 +179,9 @@ class PLOTSGroundStation(QMainWindow):
         self.image_label3 = QLabel()
         pixmap3 = QPixmap("/home/admin/pl26-groundstation/Assets/LASER_Logo.png")
         self.image_label3.setPixmap(pixmap3.scaled(100, 100, Qt.KeepAspectRatio))
-        self.image_label3.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.image_label3.setAlignment(Qt.AlignTop | Qt.AlignCenter)
 
         right_layout = QVBoxLayout()
-
         right_widget = QWidget()
         right_widget.setLayout(right_layout)
 
@@ -184,9 +190,13 @@ class PLOTSGroundStation(QMainWindow):
         images_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
         images_layout.addWidget(self.image_label2)
         images_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Fixed, QSizePolicy.Minimum))
-        images_layout.addWidget(self.image_label1)
-        right_layout.addLayout(images_layout)
 
+        unity_layout = QVBoxLayout()
+        unity_layout.addWidget(self.image_label1)
+        unity_layout.addWidget(self.alt_label)
+        images_layout.addLayout(unity_layout)
+
+        right_layout.addLayout(images_layout)
         right_layout.addWidget(self.plot3D)
 
         bottom_status = QHBoxLayout()
@@ -285,6 +295,7 @@ class PLOTSGroundStation(QMainWindow):
         self.lat_label.setText(f"Latitude: {packet['Lat']}")
         self.lon_label.setText(f"Longitude: {packet['Lon']}")
         self.rssi_label.setText(f"RSSI: {packet['RSSI']} dBm")
+        self.alt_label.setText(f"Alt : {packet['Alt']:.2f} m")
 
         self.plot2D_top.times.append(packet["T"])
         self.plot2D_top.values.append(packet[self.var_top])
@@ -299,10 +310,9 @@ class PLOTSGroundStation(QMainWindow):
         self.plot3D.velocities.append(packet["Veloc"])
         self.plot3D.updatePlot()
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = PLOTSGroundStation()
     window.show()
     sys.exit(app.exec_())
-
-
