@@ -134,7 +134,7 @@ class PLOTSGroundStation(QMainWindow):
         self.rssi_label = QLabel("RSSI: --- dBm")
 
         for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
-            lbl.setStyleSheet("color: white; font-weight: bold;")
+            lbl.setStyleSheet("color: black; font-weight: bold;")
 
         vars_ = [k for k in UNITS.keys() if k != "T"]
 
@@ -214,7 +214,7 @@ class PLOTSGroundStation(QMainWindow):
 
         central = QWidget()
         central.setLayout(main_layout)
-        central.setStyleSheet("background-color: #212b58;")
+        central.setStyleSheet("background-color: #FFFFFF;")
         self.setCentralWidget(central)
 
         self.timer = QTimer()
