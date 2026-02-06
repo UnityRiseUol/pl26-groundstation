@@ -4,16 +4,16 @@
 # Email:
 # Student Number:
 # -----------------------------------------------------------------------------------------------------------------------------
+# Code:
 import sys
 import time
 import serial
 from collections import deque
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpacerItem, QSizePolicy
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox)
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D
 
 SERIAL_PORT = "/dev/ttyAMA0"
 BAUD_RATE = 115200
@@ -33,14 +33,15 @@ UNITS = {
     "RSSI": "dBm"
 }
 
-
 class PlotLive2D(FigureCanvas):
     def __init__(self, title):
         self.fig = Figure(figsize=(5, 3))
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
+
         self.times = []
         self.values = []
+
         self.ax.set_title(title)
         self.ax.set_xlabel("Time (s)")
         self.ax.grid(True)
@@ -65,13 +66,14 @@ class PlotLive2D(FigureCanvas):
         self.ax.autoscale_view()
         self.draw_idle()
 
-
 class PlotLive3D(FigureCanvas):
     def __init__(self):
         self.fig = Figure(figsize=(9, 7))
         self.ax = self.fig.add_subplot(111, projection="3d")
         super().__init__(self.fig)
+
         self.fig.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.95)
+
         self.times = []
         self.altitudes = []
         self.velocities = []
@@ -98,26 +100,39 @@ class PlotLive3D(FigureCanvas):
             [self.velocities[-1]],
             s=30
         )
-
         self.draw_idle()
 
 
 class PLOTSGroundStation(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LASER Mission Control - PLOTS Ground Station")
+
+        self.setWindowTitle("LASER Mission Control – PL-26")
         self.resize(1200, 700)
+
+        font_id = QFontDatabase.addApplicationFont(
+            "/home/admin/pl26-groundstation/Assets/Orbitron-VariableFont_wght.ttf"
+        )
+
+        if font_id != -1:
+            self.ui_font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        else:
+            self.ui_font_family = "Arial"
+
+        def ui_font(size, weight=QFont.Medium):
+            f = QFont(self.ui_font_family)
+            f.setPointSize(size)
+            f.setWeight(weight)
+            return f
 
         self.title_banner = QLabel("LASER – Mission Control PL-26")
         self.title_banner.setAlignment(Qt.AlignCenter)
         self.title_banner.setFixedHeight(45)
+        self.title_banner.setFont(ui_font(18, QFont.Bold))
         self.title_banner.setStyleSheet(
             "background-color: #212b58;"
             "color: white;"
-            "font-size: 18px;"
-            "font-weight: bold;"
-            "letter-spacing: 1px;"
-        )
+            "letter-spacing: 2px;")
 
         try:
             self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
@@ -135,27 +150,32 @@ class PLOTSGroundStation(QMainWindow):
 
         self.status_label = QLabel("Status: Offline")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: red; font-weight: bold;")
+        self.status_label.setFont(ui_font(11, QFont.Bold))
+        self.status_label.setStyleSheet("color: red;")
 
         self.armed_label = QLabel("Status: Disarmed")
         self.armed_label.setAlignment(Qt.AlignCenter)
-        self.armed_label.setStyleSheet("color: green; font-weight: bold;")
+        self.armed_label.setFont(ui_font(11, QFont.Bold))
+        self.armed_label.setStyleSheet("color: green;")
 
         self.rate_label = QLabel("Rate: 0.0 Hz")
         self.lat_label = QLabel("Latitude: ---")
         self.lon_label = QLabel("Longitude: ---")
         self.rssi_label = QLabel("RSSI: --- dBm")
 
+        for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
+            lbl.setFont(ui_font(10))
+            lbl.setStyleSheet("color: #212b58;")
+
         self.alt_label = QLabel("Alt: --- m")
         self.alt_label.setAlignment(Qt.AlignCenter)
-        self.alt_label.setStyleSheet("color: #212b58; font-weight: bold;")
+        self.alt_label.setFont(ui_font(12, QFont.Bold))
+        self.alt_label.setStyleSheet("color: #212b58;")
 
         self.phase_label = QLabel("Phase Of Flight: Test")
         self.phase_label.setAlignment(Qt.AlignCenter)
-        self.phase_label.setStyleSheet("color: #212b58; font-weight: bold;")
-
-        for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
-            lbl.setStyleSheet("color: #212b58; font-weight: bold;")
+        self.phase_label.setFont(ui_font(11, QFont.Bold))
+        self.phase_label.setStyleSheet("color: #212b58;")
 
         vars_ = [k for k in UNITS.keys() if k != "T"]
 
@@ -166,28 +186,25 @@ class PLOTSGroundStation(QMainWindow):
         self.combo_top.setCurrentText("Alt")
         self.combo_bottom.setCurrentText("RSSI")
 
+        self.combo_top.setFont(ui_font(10))
+        self.combo_bottom.setFont(ui_font(10))
+
         self.combo_top.currentTextChanged.connect(self.changeTopVariable)
         self.combo_bottom.currentTextChanged.connect(self.changeBottomVariable)
 
-        self.combo_top.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
-        self.combo_bottom.setStyleSheet("color: white; background-color: #333; font-weight: bold;")
+        self.combo_top.setStyleSheet("color: white; background-color: #333;")
+        self.combo_bottom.setStyleSheet("color: white; background-color: #333;")
 
         self.image_label1 = QLabel()
-        self.image_label1.setPixmap(QPixmap(
-            "/home/admin/pl26-groundstation/Assets/unityrise_logo.png"
-        ).scaled(100, 100, Qt.KeepAspectRatio))
+        self.image_label1.setPixmap(QPixmap("/home/admin/pl26-groundstation/Assets/unityrise_logo.png").scaled(100, 100, Qt.KeepAspectRatio))
         self.image_label1.setAlignment(Qt.AlignCenter)
 
         self.image_label2 = QLabel()
-        self.image_label2.setPixmap(QPixmap(
-            "/home/admin/pl26-groundstation/Assets/uol_logo.png"
-        ).scaled(200, 200, Qt.KeepAspectRatio))
+        self.image_label2.setPixmap(QPixmap("/home/admin/pl26-groundstation/Assets/uol_logo.png").scaled(200, 200, Qt.KeepAspectRatio))
         self.image_label2.setAlignment(Qt.AlignCenter)
 
         self.image_label3 = QLabel()
-        self.image_label3.setPixmap(QPixmap(
-            "/home/admin/pl26-groundstation/Assets/LASER_Logo.png"
-        ).scaled(100, 100, Qt.KeepAspectRatio))
+        self.image_label3.setPixmap(QPixmap("/home/admin/pl26-groundstation/Assets/LASER_Logo.png").scaled(100, 100, Qt.KeepAspectRatio))
         self.image_label3.setAlignment(Qt.AlignCenter)
 
         laser_layout = QVBoxLayout()
@@ -242,7 +259,7 @@ class PLOTSGroundStation(QMainWindow):
         central.setLayout(root_layout)
         central.setStyleSheet("background-color: #FFFFFF;")
         self.setCentralWidget(central)
-
+        
         self.timer = QTimer()
         self.timer.timeout.connect(self.readNextPacket)
         self.timer.timeout.connect(self.updateConnectionStatus)
@@ -257,11 +274,10 @@ class PLOTSGroundStation(QMainWindow):
     def updateConnectionStatus(self):
         if time.time() - self.last_packet_time > UART_TIMEOUT_SEC:
             self.status_label.setText("Status: Offline")
-            self.status_label.setStyleSheet("color: red; font-weight: bold;")
+            self.status_label.setStyleSheet("color: red;")
             self.rate_label.setText("Rate: 0.0 Hz")
-
             self.armed_label.setText("Status: Disarmed")
-            self.armed_label.setStyleSheet("color: green; font-weight: bold;")
+            self.armed_label.setStyleSheet("color: green;")
 
     def readNextPacket(self):
         if self.ser.in_waiting == 0:
@@ -269,8 +285,7 @@ class PLOTSGroundStation(QMainWindow):
 
         last_valid_line = None
         while self.ser.in_waiting:
-            raw = self.ser.readline()
-            decoded = raw.decode("ascii", errors="ignore").strip()
+            decoded = self.ser.readline().decode("ascii", errors="ignore").strip()
             if "," in decoded:
                 last_valid_line = decoded
 
@@ -299,10 +314,9 @@ class PLOTSGroundStation(QMainWindow):
 
         self.last_packet_time = time.time()
         self.status_label.setText("Status: Online")
-        self.status_label.setStyleSheet("color: #00ff6a; font-weight: bold;")
-
+        self.status_label.setStyleSheet("color: #00ff6a;")
         self.armed_label.setText("Status: Armed")
-        self.armed_label.setStyleSheet("color: red; font-weight: bold;")
+        self.armed_label.setStyleSheet("color: red;")
 
         self.packet_times.append(self.last_packet_time)
         now = time.time()
@@ -334,4 +348,3 @@ if __name__ == "__main__":
     window = PLOTSGroundStation()
     window.show()
     sys.exit(app.exec_())
-
