@@ -133,9 +133,14 @@ class PLOTSGroundStation(QMainWindow):
         self.title_banner.setFixedHeight(45)
         self.title_banner.setFont(ui_font(18, QFont.Bold))
         self.title_banner.setStyleSheet(
-            "background-color: #212b58;"
-            "color: white;"
-            "letter-spacing: 2px;")
+            """
+            background-color: #212b58;
+            color: white;
+            letter-spacing: 2px;
+            border-radius: 10px;
+            padding: 5px;
+            """
+        )
 
         try:
             self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
@@ -195,8 +200,29 @@ class PLOTSGroundStation(QMainWindow):
         self.combo_top.currentTextChanged.connect(self.changeTopVariable)
         self.combo_bottom.currentTextChanged.connect(self.changeBottomVariable)
 
-        self.combo_top.setStyleSheet("color: white; background-color: #333;")
-        self.combo_bottom.setStyleSheet("color: white; background-color: #333;")
+        # Change ComboBox styles to match banner color
+        self.combo_top.setStyleSheet("""
+            color: white;
+            background-color: #212b58;
+            border-radius: 5px;
+            padding: 3px;
+        """)
+        self.combo_bottom.setStyleSheet("""
+            color: white;
+            background-color: #212b58;
+            border-radius: 5px;
+            padding: 3px;
+        """)
+
+        # Labels "Top Plot Variable:" and "Bottom Plot Variable:" font change to NASA font
+        self.top_variable_label = QLabel("Top Plot Variable:")
+        self.bottom_variable_label = QLabel("Bottom Plot Variable:")
+        
+        self.top_variable_label.setFont(ui_font(11, QFont.Bold))
+        self.top_variable_label.setStyleSheet("color: #212b58;")
+        
+        self.bottom_variable_label.setFont(ui_font(11, QFont.Bold))
+        self.bottom_variable_label.setStyleSheet("color: #212b58;")
 
         # Image Labels
         self.image_label1 = QLabel()
@@ -244,10 +270,10 @@ class PLOTSGroundStation(QMainWindow):
         right_layout.addLayout(bottom_status)
 
         left_layout = QVBoxLayout()
-        left_layout.addWidget(QLabel("Top Plot Variable:"))
+        left_layout.addWidget(self.top_variable_label)
         left_layout.addWidget(self.combo_top)
         left_layout.addWidget(self.plot2D_top)
-        left_layout.addWidget(QLabel("Bottom Plot Variable:"))
+        left_layout.addWidget(self.bottom_variable_label)
         left_layout.addWidget(self.combo_bottom)
         left_layout.addWidget(self.plot2D_bottom)
 
