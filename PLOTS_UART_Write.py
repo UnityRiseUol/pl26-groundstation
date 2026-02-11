@@ -1,4 +1,4 @@
-# Program: PLOTS_Map.py
+# Program: PLOTS_UART_Write.py
 # Author:
 # Module:
 # Email:
@@ -9,13 +9,13 @@ import sys
 import time
 import serial
 from collections import deque
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,QVBoxLayout, QHBoxLayout, QLabel, QComboBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox)
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
-from PyQt5.QtWebEngineWidgets import QWebEngineView
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-
+import csv
+from datetime import datetime
 
 SERIAL_PORT = "/dev/ttyAMA0"
 BAUD_RATE = 115200
@@ -68,13 +68,14 @@ class PlotLive2D(FigureCanvas):
         self.ax.autoscale_view()
         self.draw_idle()
 
+
 class PlotLive3D(FigureCanvas):
     def __init__(self):
-        self.fig = Figure(figsize=(9, 6))
+        self.fig = Figure(figsize=(9, 7))
         self.ax = self.fig.add_subplot(111, projection="3d")
         super().__init__(self.fig)
 
-        self.fig.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.92)
+        self.fig.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.95)
 
         self.times = []
         self.altitudes = []
@@ -87,6 +88,7 @@ class PlotLive3D(FigureCanvas):
         self.ax.clear()
         self.ax.set_title(
             "Live Flight Path Analysis",
+            pad=4,
             color="#212b58",
             fontweight="bold"
         )
@@ -103,93 +105,22 @@ class PlotLive3D(FigureCanvas):
         )
         self.draw_idle()
 
-MAP_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<link rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<style>
-html, body, #map {
-    height: 100%;
-    margin: 0;
-}
-</style>
-</head>
-
-<body>
-<div id="map"></div>
-
-<script>
-var map;
-var path;
-var marker;
-
-function initMap() {
-    map = L.map('map').setView([0, 0], 2);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18
-    }).addTo(map);
-
-    path = L.polyline([], {color: 'red', weight: 3}).addTo(map);
-
-    marker = L.circleMarker([0, 0], {
-        radius: 6,
-        color: 'lime',
-        fillColor: 'lime',
-        fillOpacity: 1
-    }).addTo(map);
-}
-
-function updatePosition(lat, lon) {
-    if (!map || !marker || !path) return;
-    var p = [lat, lon];
-    marker.setLatLng(p);
-    path.addLatLng(p);
-    map.setView(p, map.getZoom(), {animate: false});
-}
-
-window.onload = initMap;
-</script>
-</body>
-</html>
-"""
-
-class LiveMap(QWebEngineView):
-    def __init__(self):
-        super().__init__()
-        self.map_ready = False
-        self.pending_positions = deque()
-        self.loadFinished.connect(self._on_load_finished)
-        self.setHtml(MAP_HTML)
-
-    def _on_load_finished(self, ok):
-        if ok:
-            self.map_ready = True
-            while self.pending_positions:
-                lat, lon = self.pending_positions.popleft()
-                self.update_position(lat, lon)
-            self.update_position(0, 0)
-
-    def update_position(self, lat, lon):
-        if not self.map_ready:
-            self.pending_positions.append((lat, lon))
-            return
-        self.page().runJavaScript(f"updatePosition({lat}, {lon});")
 
 class PLOTSGroundStation(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LASER – UnityRise Mission Control - PL-26")
+
+        self.setWindowTitle("LASER - UnityRise Mission Control – PL-26")
         self.resize(1200, 700)
-        font_id = QFontDatabase.addApplicationFont("/home/admin/pl26-groundstation/Assets/Orbitron-VariableFont_wght.ttf")
-        self.ui_font_family = (QFontDatabase.applicationFontFamilies(font_id)[0] if font_id != -1 else "Arial")
+
+        font_id = QFontDatabase.addApplicationFont(
+            "/home/admin/pl26-groundstation/Assets/Orbitron-VariableFont_wght.ttf"
+        )
+
+        if font_id != -1:
+            self.ui_font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        else:
+            self.ui_font_family = "Arial"
 
         def ui_font(size, weight=QFont.Medium):
             f = QFont(self.ui_font_family)
@@ -201,7 +132,10 @@ class PLOTSGroundStation(QMainWindow):
         self.title_banner.setAlignment(Qt.AlignCenter)
         self.title_banner.setFixedHeight(45)
         self.title_banner.setFont(ui_font(18, QFont.Bold))
-        self.title_banner.setStyleSheet("background-color:#212b58;color:white;letter-spacing:2px;")
+        self.title_banner.setStyleSheet(
+            "background-color: #212b58;"
+            "color: white;"
+            "letter-spacing: 2px;")
 
         try:
             self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
@@ -216,15 +150,16 @@ class PLOTSGroundStation(QMainWindow):
         self.plot2D_top = PlotLive2D("Alt vs Time")
         self.plot2D_bottom = PlotLive2D("RSSI vs Time")
         self.plot3D = PlotLive3D()
-        self.live_map = LiveMap()
 
         self.status_label = QLabel("Status: Offline")
+        self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setFont(ui_font(11, QFont.Bold))
-        self.status_label.setStyleSheet("color:red;")
+        self.status_label.setStyleSheet("color: red;")
 
         self.armed_label = QLabel("Status: Disarmed")
+        self.armed_label.setAlignment(Qt.AlignCenter)
         self.armed_label.setFont(ui_font(11, QFont.Bold))
-        self.armed_label.setStyleSheet("color:green;")
+        self.armed_label.setStyleSheet("color: green;")
 
         self.rate_label = QLabel("Rate: 0.0 Hz")
         self.lat_label = QLabel("Latitude: ---")
@@ -233,16 +168,37 @@ class PLOTSGroundStation(QMainWindow):
 
         for lbl in [self.rate_label, self.lat_label, self.lon_label, self.rssi_label]:
             lbl.setFont(ui_font(10))
-            lbl.setStyleSheet("color:#212b58;")
+            lbl.setStyleSheet("color: #212b58;")
 
         self.alt_label = QLabel("Alt: --- m")
         self.alt_label.setAlignment(Qt.AlignCenter)
         self.alt_label.setFont(ui_font(12, QFont.Bold))
+        self.alt_label.setStyleSheet("color: #212b58;")
 
         self.phase_label = QLabel("Phase Of Flight: Test")
         self.phase_label.setAlignment(Qt.AlignCenter)
         self.phase_label.setFont(ui_font(11, QFont.Bold))
+        self.phase_label.setStyleSheet("color: #212b58;")
 
+        vars_ = [k for k in UNITS.keys() if k != "T"]
+
+        self.combo_top = QComboBox()
+        self.combo_bottom = QComboBox()
+        self.combo_top.addItems(vars_)
+        self.combo_bottom.addItems(vars_)
+        self.combo_top.setCurrentText("Alt")
+        self.combo_bottom.setCurrentText("RSSI")
+
+        self.combo_top.setFont(ui_font(10))
+        self.combo_bottom.setFont(ui_font(10))
+
+        self.combo_top.currentTextChanged.connect(self.changeTopVariable)
+        self.combo_bottom.currentTextChanged.connect(self.changeBottomVariable)
+
+        self.combo_top.setStyleSheet("color: white; background-color: #333;")
+        self.combo_bottom.setStyleSheet("color: white; background-color: #333;")
+
+        # Image Labels
         self.image_label1 = QLabel()
         self.image_label1.setPixmap(QPixmap("/home/admin/pl26-groundstation/Assets/unityrise_logo.png").scaled(100, 100, Qt.KeepAspectRatio))
         self.image_label1.setAlignment(Qt.AlignCenter)
@@ -259,47 +215,22 @@ class PLOTSGroundStation(QMainWindow):
         laser_layout.addWidget(self.image_label3)
         laser_layout.addWidget(self.phase_label)
 
-        uol_layout = QVBoxLayout()
-        uol_layout.addWidget(self.image_label2)
-        uol_layout.addWidget(self.armed_label)
-
         unity_layout = QVBoxLayout()
         unity_layout.addWidget(self.image_label1)
         unity_layout.addWidget(self.alt_label)
+
+        uol_layout = QVBoxLayout()
+        uol_layout.addWidget(self.image_label2)
+        uol_layout.addWidget(self.armed_label)
 
         images_layout = QHBoxLayout()
         images_layout.addLayout(laser_layout)
         images_layout.addLayout(uol_layout)
         images_layout.addLayout(unity_layout)
 
-        vars_ = [k for k in UNITS if k != "T"]
-
-        self.combo_top = QComboBox()
-        self.combo_bottom = QComboBox()
-        self.combo_top.addItems(vars_)
-        self.combo_bottom.addItems(vars_)
-        self.combo_top.setCurrentText("Alt")
-        self.combo_bottom.setCurrentText("RSSI")
-
-        self.combo_top.currentTextChanged.connect(self.changeTopVariable)
-        self.combo_bottom.currentTextChanged.connect(self.changeBottomVariable)
-
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(QLabel("Top Plot Variable:"))
-        left_layout.addWidget(self.combo_top)
-        left_layout.addWidget(self.plot2D_top)
-        left_layout.addWidget(QLabel("Bottom Plot Variable:"))
-        left_layout.addWidget(self.combo_bottom)
-        left_layout.addWidget(self.plot2D_bottom)
-
         right_layout = QVBoxLayout()
         right_layout.addLayout(images_layout)
-
-        plot_map_layout = QHBoxLayout()
-        plot_map_layout.addWidget(self.plot3D, 3)
-        plot_map_layout.addWidget(self.live_map, 2)
-
-        right_layout.addLayout(plot_map_layout)
+        right_layout.addWidget(self.plot3D)
 
         bottom_status = QHBoxLayout()
         bottom_status.addStretch()
@@ -312,6 +243,14 @@ class PLOTSGroundStation(QMainWindow):
 
         right_layout.addLayout(bottom_status)
 
+        left_layout = QVBoxLayout()
+        left_layout.addWidget(QLabel("Top Plot Variable:"))
+        left_layout.addWidget(self.combo_top)
+        left_layout.addWidget(self.plot2D_top)
+        left_layout.addWidget(QLabel("Bottom Plot Variable:"))
+        left_layout.addWidget(self.combo_bottom)
+        left_layout.addWidget(self.plot2D_bottom)
+
         main_layout = QHBoxLayout()
         main_layout.addLayout(left_layout, 2)
         main_layout.addLayout(right_layout, 3)
@@ -322,26 +261,27 @@ class PLOTSGroundStation(QMainWindow):
 
         central = QWidget()
         central.setLayout(root_layout)
+        central.setStyleSheet("background-color: #FFFFFF;")
         self.setCentralWidget(central)
-
+        
         self.timer = QTimer()
         self.timer.timeout.connect(self.readNextPacket)
         self.timer.timeout.connect(self.updateConnectionStatus)
         self.timer.start(INTERVAL_MS)
 
     def changeTopVariable(self, var):
-        self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS[var]})")
+        self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
 
     def changeBottomVariable(self, var):
-        self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS[var]})")
+        self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
 
     def updateConnectionStatus(self):
         if time.time() - self.last_packet_time > UART_TIMEOUT_SEC:
             self.status_label.setText("Status: Offline")
-            self.status_label.setStyleSheet("color:red;")
+            self.status_label.setStyleSheet("color: red;")
             self.rate_label.setText("Rate: 0.0 Hz")
             self.armed_label.setText("Status: Disarmed")
-            self.armed_label.setStyleSheet("color:green;")
+            self.armed_label.setStyleSheet("color: green;")
 
     def readNextPacket(self):
         if self.ser.in_waiting == 0:
@@ -349,9 +289,9 @@ class PLOTSGroundStation(QMainWindow):
 
         last_valid_line = None
         while self.ser.in_waiting:
-            line = self.ser.readline().decode("ascii", errors="ignore").strip()
-            if "," in line:
-                last_valid_line = line
+            decoded = self.ser.readline().decode("ascii", errors="ignore").strip()
+            if "," in decoded:
+                last_valid_line = decoded
 
         if not last_valid_line:
             return
@@ -375,25 +315,24 @@ class PLOTSGroundStation(QMainWindow):
             }
         except ValueError:
             return
-            
-        now = time.time()
-        self.last_packet_time = now
-        self.packet_times.append(now)
 
+        self.last_packet_time = time.time()
+        self.status_label.setText("Status: Online")
+        self.status_label.setStyleSheet("color: #00ff6a;")
+        self.armed_label.setText("Status: Armed")
+        self.armed_label.setStyleSheet("color: red;")
+
+        self.packet_times.append(self.last_packet_time)
+        now = time.time()
         while self.packet_times and now - self.packet_times[0] > 1.0:
             self.packet_times.popleft()
         self.rate_label.setText(f"Rate: {len(self.packet_times):.1f} Hz")
-        
-        self.status_label.setText("Status: Online")
-        self.status_label.setStyleSheet("color:#00ff6a;")
-        self.armed_label.setText("Status: Armed")
-        self.armed_label.setStyleSheet("color:red;")
 
         self.lat_label.setText(f"Latitude: {packet['Lat']}")
         self.lon_label.setText(f"Longitude: {packet['Lon']}")
         self.rssi_label.setText(f"RSSI: {packet['RSSI']} dBm")
-        self.alt_label.setText(f"Alt: {packet['Alt']:.2f} m")
-        
+        self.alt_label.setText(f"Alt : {packet['Alt']:.2f} m")
+
         self.plot2D_top.times.append(packet["T"])
         self.plot2D_top.values.append(packet[self.combo_top.currentText()])
         self.plot2D_top.updatePlot()
@@ -407,7 +346,6 @@ class PLOTSGroundStation(QMainWindow):
         self.plot3D.velocities.append(packet["Veloc"])
         self.plot3D.updatePlot()
 
-        self.live_map.update_position(packet["Lat"], packet["Lon"])
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

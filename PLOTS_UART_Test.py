@@ -107,7 +107,7 @@ class PLOTSGroundStation(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("LASER Mission Control – PL-26")
+        self.setWindowTitle("LASER – UnityRise Mission Control - PL-26")
         self.resize(1200, 700)
 
         font_id = QFontDatabase.addApplicationFont(
@@ -125,7 +125,7 @@ class PLOTSGroundStation(QMainWindow):
             f.setWeight(weight)
             return f
 
-        self.title_banner = QLabel("LASER – Mission Control PL-26")
+        self.title_banner = QLabel("LASER – UnityRise Mission Control - PL-26")
         self.title_banner.setAlignment(Qt.AlignCenter)
         self.title_banner.setFixedHeight(45)
         self.title_banner.setFont(ui_font(18, QFont.Bold))
