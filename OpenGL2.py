@@ -55,18 +55,22 @@ def read_uart():
                 except ValueError:
                     pass
 
-def draw_text(position, text, font):
-    """Renders 2D text overlaying the 3D scene."""
-    text_surface = font.render(text, True, (255, 255, 0)) # Yellow text
+def draw_text(x, y, text, font):
+    """Safely renders 2D HUD text over the 3D scene."""
+    text_surface = font.render(text, True, (255, 255, 0))
     text_data = pygame.image.tostring(text_surface, "RGBA", True)
     width, height = text_surface.get_size()
-
-    glWindowPos2d(position[0], position[1])
+    
+    # Switch to 2D Raster Position
+    glPushAttrib(GL_CURRENT_BIT | GL_ENABLE_BIT)
+    glDisable(GL_DEPTH_TEST)  # Ensure text isn't 'hidden' behind 3D objects
+    glRasterPos2d(x, y)
     glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+    glPopAttrib()
 
 def draw_environment():
     glBegin(GL_LINES)
-    glColor3f(0.2, 0.2, 0.2)
+    glColor3f(0.4, 0.4, 0.4)
     for i in range(-10, 11):
         glVertex3f(i, -5, -10); glVertex3f(i, -5, 10)
         glVertex3f(-10, -5, i); glVertex3f(10, -5, i)
@@ -84,19 +88,10 @@ def draw_rocket():
     # Nose
     glColor3f(1.0, 0.0, 0.0)
     glPushMatrix()
-    glTranslatef(0, 2, 0)
+    glTranslatef(0, 8/4, 0) # Adjusting height relative to scale
     glRotatef(-90, 1, 0, 0)
     gluCylinder(quad, 0.4, 0, 1.2, 32, 32)
     glPopMatrix()
-    # Fins
-    glColor3f(0.2, 0.2, 0.9)
-    for angle in [0, 90, 180, 270]:
-        glPushMatrix()
-        glRotatef(angle, 0, 1, 0)
-        glBegin(GL_TRIANGLES)
-        glVertex3f(0.4, -2, 0); glVertex3f(1.1, -2, 0); glVertex3f(0.4, -1, 0)
-        glEnd()
-        glPopMatrix()
 
 def main():
     pygame.init()
@@ -104,26 +99,33 @@ def main():
     pygame.display.set_mode(display_res, DOUBLEBUF | OPENGL)
     pygame.display.set_caption("PL-26 Telemetry Visualizer")
     
-    # HUD Font
-    font = pygame.font.SysFont('Consolas', 24)
+    font = pygame.font.SysFont('Arial', 24)
 
-    gluPerspective(45, (display_res[0]/display_res[1]), 0.1, 100.0)
+    # Global Setup
     glEnable(GL_DEPTH_TEST)
+    glClearColor(0.05, 0.05, 0.1, 1) # Dark blue background instead of pure black
+
     clock = pygame.time.Clock()
 
     while True:
         for event in pygame.event.get():
-            if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+            if event.type == QUIT:
                 pygame.quit(); sys.exit()
 
         read_uart()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glLoadIdentity()
         
-        # 3D Scene
-        glTranslatef(0, 0, -12) 
-        glRotatef(20, 1, 0, 0) # Camera angle
+        # --- 1. SET UP 3D PERSPECTIVE ---
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        gluPerspective(45, (display_res[0]/display_res[1]), 0.1, 100.0)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glTranslatef(0, 0, -15) # Move back further to ensure visibility
+        glRotatef(20, 1, 0, 0)
+
         draw_environment()
 
         glPushMatrix()
@@ -132,11 +134,26 @@ def main():
         draw_rocket()
         glPopMatrix()
 
-        # 2D HUD (Digital Readout)
+        # --- 2. SET UP 2D OVERLAY ---
+        # Switch to Orthographic to handle the HUD properly
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, display_res[0], 0, display_res[1])
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
         status = "ONLINE" if (time.time() - last_packet_time < UART_TIMEOUT_SEC) else "OFFLINE"
-        draw_text((20, 680), f"STATUS: {status}", font)
-        draw_text((20, 650), f"ALTITUDE: {altitude:.2f} m", font)
-        draw_text((20, 620), f"RSSI: {rssi} dBm", font)
+        draw_text(20, 680, f"STATUS: {status}", font)
+        draw_text(20, 650, f"ALTITUDE: {altitude:.2f} m", font)
+        draw_text(20, 620, f"RSSI: {rssi} dBm", font)
+
+        # Restore 3D matrices
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
 
         pygame.display.flip()
         clock.tick(60)
