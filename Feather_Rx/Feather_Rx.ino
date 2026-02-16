@@ -1,120 +1,90 @@
 /*
  * File:        main.cpp
  * Receiver:    Adafruit Feather RP2040
- * Description: High Speed LoRa Receiver (Binary/Struct) - Updated for INS Estimates
+ * Description: High Speed LoRa Receiver with Buffer Flushing
  */
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
 
-// --- PINS (Feather RP2040) ---
 #define RFM95_CS    16
 #define RFM95_RST   17
 #define RFM95_INT   21
 #define BAND 868E6
 
-// --- STRUCT DEFINITION ---
-// MUST match the Sender exactly (Total Size: 44 bytes)
 struct __attribute__((packed)) TelemetryPacket {
-    float altitude;   // 4 bytes
-    float vSpeed;     // 4 bytes
-    float lat;        // 4 bytes
-    float lon;        // 4 bytes
-    float qR;         // 4 bytes
-    float qI;         // 4 bytes
-    float qJ;         // 4 bytes
-    float qK;         // 4 bytes
-    float insX;       // 4 bytes (New)
-    float insY;       // 4 bytes (New)
-    float insZ;       // 4 bytes (New)
+    float altitude;   
+    float vSpeed;    
+    float lat;        
+    float lon;        
+    float qR, qI, qJ, qK;         
+    float insX, insY, insZ;       
 };
 
-// --- STATISTICS ---
 unsigned long lastStatTime = 0;
 int packetCount = 0;
 TelemetryPacket currentPacket;
 
 void setup() {
-  Serial.begin(115200);
-  // while (!Serial) delay(1); 
+    Serial1.begin(115200);
+    LoRa.setPins(RFM95_CS, RFM95_RST, RFM95_INT);
+    
+    if (!LoRa.begin(BAND)) {
+        Serial.println("LoRa Init Failed");
+        while (1);
+    }
 
-  Serial.println("RP2040 LoRa Receiver - INS Tracking Mode");
-
-  // Setup LoRa
-  LoRa.setPins(RFM95_CS, RFM95_RST, RFM95_INT);
-  if (!LoRa.begin(BAND)) {
-    Serial.println("LoRa Init Failed");
-    while (1);
-  }
-
-  // --- MATCH SENDER SETTINGS EXACTLY ---
-  LoRa.setSignalBandwidth(500E3); // 500kHz
-  LoRa.setSpreadingFactor(7);     // SF7
-  LoRa.setCodingRate4(5);         // CR 4/5
-  
-  Serial.println("LoRa Listening at 868MHz / 500kHz BW...");
-  Serial.println("Time,Alt,VSpeed,Lat,Lon,qR,qI,qJ,qK,insX,insY,insZ,RSSI");
+    // High Speed Configuration
+    LoRa.setSignalBandwidth(500E3);
+    LoRa.setSpreadingFactor(7);
+    LoRa.setCodingRate4(5);
+    LoRa.enableCrc(); // Matches sender
+    
+    Serial.println("RP2040 Receiver Ready. Syncing...");
 }
 
 void loop() {
-  // Check for packet
-  int packetSize = LoRa.parsePacket();
+    int packetSize = LoRa.parsePacket();
 
-  // Validate packet size against the updated struct (44 bytes)
-  if (packetSize == sizeof(TelemetryPacket)) {
-    // Read the binary data directly into the struct
-    LoRa.readBytes((uint8_t*)&currentPacket, sizeof(currentPacket));
-    packetCount++;
+    if (packetSize > 0) {
+        if (packetSize == sizeof(TelemetryPacket)) {
+            // Read valid packet
+            LoRa.readBytes((uint8_t*)&currentPacket, sizeof(currentPacket));
+            packetCount++;
 
-    // Print Data in CSV format for plotting/logging
-    Serial.print(millis());
-    Serial.print(",");
-    Serial.print(currentPacket.altitude, 2);
-    Serial.print(",");
-    Serial.print(currentPacket.vSpeed, 2);
-    Serial.print(",");
-    Serial.print(currentPacket.lat, 6);
-    Serial.print(",");
-    Serial.print(currentPacket.lon, 6);
-    Serial.print(",");
-    Serial.print(currentPacket.qR, 4);
-    Serial.print(",");
-    Serial.print(currentPacket.qI, 4);
-    Serial.print(",");
-    Serial.print(currentPacket.qJ, 4);
-    Serial.print(",");
-    Serial.print(currentPacket.qK, 4);
-    Serial.print(",");
-    Serial.print(currentPacket.insX, 2);
-    Serial.print(",");
-    Serial.print(currentPacket.insY, 2);
-    Serial.print(",");
-    Serial.print(currentPacket.insZ, 2);
-    Serial.print(",");
-    Serial.println(LoRa.packetRssi());
+            // Print CSV (Millis, Alt, VSpd, Lat, Lon, Quats, INS_XYZ, RSSI)
+            Serial1.print(millis()); Serial1.print(",");
+            Serial1.print(currentPacket.altitude, 2); Serial1.print(",");
+            Serial1.print(currentPacket.vSpeed, 2); Serial1.print(",");
+            Serial1.print(currentPacket.lat, 6); Serial1.print(",");
+            Serial1.print(currentPacket.lon, 6); Serial1.print(",");
+            Serial1.print(currentPacket.qR, 4); Serial1.print(",");
+            Serial1.print(currentPacket.qI, 4); Serial1.print(",");
+            Serial1.print(currentPacket.qJ, 4); Serial1.print(",");
+            Serial1.print(currentPacket.qK, 4); Serial1.print(",");
+            Serial1.print(currentPacket.insX, 2); Serial1.print(",");
+            Serial1.print(currentPacket.insY, 2); Serial1.print(",");
+            Serial1.print(currentPacket.insZ, 2); Serial1.print(",");
+            Serial1.println(LoRa.packetRssi());
+        } 
+        else {
+            // BUFFER FLUSH: Prevents the "255" ghosting issue
+            // If the size is wrong, empty the radio's buffer immediately
+            while (LoRa.available()) {
+                LoRa.read();
+            }
+        }
+    }
 
-  } else if (packetSize > 0) {
-    // Helpful for debugging if sender/receiver get out of sync
-    Serial.print("ERR: Size mismatch. Expected ");
-    Serial.print(sizeof(TelemetryPacket));
-    Serial.print(" but got ");
-    Serial.println(packetSize);
-    
-    while (LoRa.available()) LoRa.read();
-  }
-
-  // Print Frequency Stats every 1 second
-  if (millis() - lastStatTime >= 1000) {
-    // Use Serial.println to separate stats from CSV stream or 
-    // comment this out if you are using a dedicated Serial Plotter
-    /*
-    Serial.print(">>> RATE: ");
-    Serial.print(packetCount);
-    Serial.println(" Hz <<<");
-    */
-    
-    packetCount = 0;
-    lastStatTime = millis();
-  }
+    // Rate Stats (Printed only if no packets coming through)
+    if (millis() - lastStatTime >= 1000) {
+        if (packetCount == 0) {
+            Serial.print(">>> RATE: 0 Hz (Check Sender) <<<");
+        } else {
+            Serial.print("Rate: "); Serial.println(packetCount);
+        }
+        packetCount = 0;
+        lastStatTime = millis();
+    }
 }
