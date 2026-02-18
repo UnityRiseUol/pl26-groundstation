@@ -130,7 +130,7 @@ class RocketRotationWidget(gl.GLViewWidget):
         # 2. THE FIX: Apply a base rotation to the STL.
         # If your STL is "laying down" on the X-axis, we rotate it 90 deg 
         # around the Z-axis (or Y) to make it point UP at identity (1,0,0,0).
-        transform.rotate(90, 0, 0, 1) 
+        transform.rotate(90, 90, 90, 1) 
         
         # 3. Apply the live sensor data
         transform.rotate(quat)
