@@ -1,0 +1,9 @@
+
+--- Calibration Session: Wed Feb 18 17:14:16 2026 ---
+Pose: LEVEL (Nose pointing North, upright) | Quat: [0.6765, 0.0119, 0.0140, 0.7363]
+
+--- Calibration Session: Wed Feb 18 17:15:56 2026 ---
+Pose: LEVEL (Nose pointing North, upright) | Quat: [0.6830, 0.0124, 0.0151, 0.7302]
+Pose: NOSE UP (Vertical) | Quat: [0.9378, -0.0339, -0.0170, 0.3450]
+Pose: 90 DEGREE ROLL (Right side down) | Quat: [0.2114, -0.3243, 0.2761, -0.8797]
+Pose: PITCH DOWN 90 (Nose to ground) | Quat: [0.5346, -0.6351, -0.2330, -0.5065]
