@@ -3,7 +3,6 @@ import sys
 import time
 import os
 import serial
-import csv
 import numpy as np
 from collections import deque
 from stl import mesh
@@ -42,7 +41,7 @@ UART_TIMEOUT_SEC = 1.0
 UNITS = {
     "T": "s", "Alt": "m", "Veloc": "m/s", "Lat": "deg", "Lon": "deg",
     "qR": "float", "qI": "float", "qJ": "float", "qK": "float",
-    "insX": "m", "insY": "m", "insZ": "m", "RSSI": "dBm"
+    "RSSI": "dBm"
 }
 
 # -------------------- Classes --------------------
@@ -84,7 +83,7 @@ class PlotLive3D(FigureCanvas):
     def updatePlot(self):
         if not self.posX: return
         self.ax.clear()
-        self.ax.set_title("Live INS Relative Position (XYZ)", fontweight="bold")
+        self.ax.set_title("Live Flight Path (T, Alt, Veloc)", fontweight="bold")
         self.ax.plot(self.posX, self.posY, self.posZ, lw=1.5)
         self.ax.scatter([self.posX[-1]], [self.posY[-1]], [self.posZ[-1]], s=60)
         self.draw_idle()
@@ -96,13 +95,10 @@ class RocketRotationWidget(gl.GLViewWidget):
         self.grid = gl.GLGridItem()
         self.grid.setColor((150, 150, 150, 255)) 
         self.addItem(self.grid)
-        
-        # --- CAMERA DISTANCE ---
         self.setCameraPosition(distance=30) 
         
         # --- MESH SCALE FACTOR ---
-        # Adjust this value to change the rocket size (e.g., 0.001 for smaller)
-        self.rocket_scale = 0.01
+        self.rocket_scale = 0.01 
         
         self.overlay = QLabel(self) 
         self.overlay.setStyleSheet("""
@@ -125,12 +121,8 @@ class RocketRotationWidget(gl.GLViewWidget):
         try:
             stl_mesh = mesh.Mesh.from_file(path)
             verts = stl_mesh.vectors.reshape(-1, 3)
-            
-            # Center the model
             center = (verts.max(axis=0) + verts.min(axis=0)) / 2
             verts -= center
-            
-            # Apply scale directly to vertices
             verts *= self.rocket_scale
 
             self.rocket = gl.GLMeshItem(
@@ -141,7 +133,6 @@ class RocketRotationWidget(gl.GLViewWidget):
             self.addItem(self.rocket)
         except:
             self.rocket = gl.GLBoxItem(color=vibrant_red)
-            self.rocket.scale(5*self.rocket_scale, 5*self.rocket_scale, 15*self.rocket_scale)
             self.addItem(self.rocket)
 
     def set_rotation(self, w, x, y, z):
@@ -153,8 +144,6 @@ class RocketRotationWidget(gl.GLViewWidget):
         self.overlay.setText(f"W: {w:.3f} | X: {x:.3f} | Y: {y:.3f} | Z: {z:.3f}")
         self.overlay.adjustSize()
         self.overlay.move(10, self.height() - self.overlay.height() - 10)
-
-# -------------------- Main Mission Control --------------------
 
 class PLOTSGroundStation(QMainWindow):
     def __init__(self):
@@ -171,20 +160,22 @@ class PLOTSGroundStation(QMainWindow):
             return f
 
         self.title_banner = QLabel("LASER – UnityRise Mission Control - PL-26")
-        self.title_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_banner.setAlignment(Qt.AlignCenter)
         self.title_banner.setFixedHeight(45)
         self.title_banner.setFont(ui_font(18, QFont.Weight.Bold))
         self.title_banner.setStyleSheet("background-color: #212b58; color: white; border-radius: 10px; padding: 5px;")
 
-        self.ser = None
         try: 
             self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
             self.ser.reset_input_buffer()
-        except: pass
+        except: 
+            print("Serial Port not found.")
+            self.ser = None
         
         self.start_time = time.time()
         self.last_packet_time = 0
 
+        # UI Setup
         self.status_label = QLabel("Status: Offline")
         self.armed_label = QLabel("Status: Disarmed")
         self.rate_label = QLabel("Rate: 0.0 Hz")
@@ -196,10 +187,10 @@ class PLOTSGroundStation(QMainWindow):
 
         for lbl in [self.status_label, self.armed_label, self.rate_label, self.lat_label, self.lon_label, self.rssi_label, self.alt_label, self.phase_label]:
             lbl.setFont(ui_font(11, QFont.Weight.Bold))
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setAlignment(Qt.AlignCenter)
 
         self.visualizer_selector = QComboBox()
-        self.visualizer_selector.addItems(["3D Relative Position", "Rocket Attitude (3D Rotation)"])
+        self.visualizer_selector.addItems(["3D Flight Path", "Rocket Attitude (3D Rotation)"])
         self.visualizer_selector.currentIndexChanged.connect(lambda i: self.stacked_3d.setCurrentIndex(i))
 
         self.plot3D = PlotLive3D()
@@ -208,13 +199,13 @@ class PLOTSGroundStation(QMainWindow):
         self.stacked_3d.addWidget(self.plot3D)
         self.stacked_3d.addWidget(self.rotation3D)
 
-        self.image_label1 = QLabel(); self.image_label1.setPixmap(QPixmap(UNITYRISE_LOGO_PATH).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio))
-        self.image_label2 = QLabel(); self.image_label2.setPixmap(QPixmap(UOL_LOGO_PATH).scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
-        self.image_label3 = QLabel(); self.image_label3.setPixmap(QPixmap(LASER_LOGO_PATH).scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio))
+        self.image_label1 = QLabel(); self.image_label1.setPixmap(QPixmap(UNITYRISE_LOGO_PATH).scaled(100, 100, Qt.KeepAspectRatio))
+        self.image_label2 = QLabel(); self.image_label2.setPixmap(QPixmap(UOL_LOGO_PATH).scaled(200, 200, Qt.KeepAspectRatio))
+        self.image_label3 = QLabel(); self.image_label3.setPixmap(QPixmap(LASER_LOGO_PATH).scaled(100, 100, Qt.KeepAspectRatio))
 
         img_row = QHBoxLayout()
         for l, b in [(self.image_label3, self.phase_label), (self.image_label2, self.armed_label), (self.image_label1, self.alt_label)]:
-            v = QVBoxLayout(); v.addWidget(l, alignment=Qt.AlignmentFlag.AlignCenter); v.addWidget(b); img_row.addLayout(v)
+            v = QVBoxLayout(); v.addWidget(l, alignment=Qt.AlignCenter); v.addWidget(b); img_row.addLayout(v)
 
         right_layout = QVBoxLayout()
         right_layout.addLayout(img_row)
@@ -244,7 +235,8 @@ class PLOTSGroundStation(QMainWindow):
         main_layout.addLayout(right_layout, 3)
 
         root = QVBoxLayout(); root.addWidget(self.title_banner); root.addLayout(main_layout)
-        container = QWidget(); container.setLayout(root); self.setCentralWidget(container)
+        container = QWidget(); container.setLayout(root); container.setStyleSheet("background-color: #FFFFFF;")
+        self.setCentralWidget(container)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.readNextPacket)
@@ -253,6 +245,7 @@ class PLOTSGroundStation(QMainWindow):
 
     def changeTopVariable(self, var): self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
     def changeBottomVariable(self, var): self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
+    
     def updateConnectionStatus(self):
         if self.ser and time.time() - self.last_packet_time > UART_TIMEOUT_SEC:
             self.status_label.setText("Status: Offline")
@@ -270,9 +263,16 @@ class PLOTSGroundStation(QMainWindow):
             v = last_valid_line.split(",")
             if len(v) < 9: return
             packet = {
-                "T": time.time() - self.start_time, "Alt": float(v[0]), "Veloc": float(v[1]),
-                "Lat": float(v[2]), "Lon": float(v[3]), "qR": float(v[4]), "qI": float(v[5]),
-                "qJ": float(v[6]), "qK": float(v[7]), "RSSI": int(v[8])
+                "T": time.time() - self.start_time, 
+                "Alt": float(v[0]), 
+                "Veloc": float(v[1]),
+                "Lat": float(v[2]), 
+                "Lon": float(v[3]), 
+                "qR": float(v[4]), 
+                "qI": float(v[5]),
+                "qJ": float(v[6]), 
+                "qK": float(v[7]), 
+                "RSSI": int(float(v[8])) # FIX FOR INT ERROR
             }
             self.last_packet_time = time.time()
             self.status_label.setText("Status: Online")
@@ -281,9 +281,15 @@ class PLOTSGroundStation(QMainWindow):
 
             self.plot2D_top.times.append(packet["T"]); self.plot2D_top.values.append(packet[self.combo_top.currentText()]); self.plot2D_top.updatePlot()
             self.plot2D_bottom.times.append(packet["T"]); self.plot2D_bottom.values.append(packet[self.combo_bottom.currentText()]); self.plot2D_bottom.updatePlot()
-            self.plot3D.posX.append(packet["T"]); self.plot3D.posY.append(packet["Alt"]); self.plot3D.posZ.append(packet["Veloc"]); self.plot3D.updatePlot()
+            
+            self.plot3D.posX.append(packet["T"])
+            self.plot3D.posY.append(packet["Alt"])
+            self.plot3D.posZ.append(packet["Veloc"])
+            self.plot3D.updatePlot()
+            
             self.rotation3D.set_rotation(packet["qR"], packet["qI"], packet["qJ"], packet["qK"])
-        except Exception as e: print(f"Error: {e}")
+        except Exception as e: 
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
