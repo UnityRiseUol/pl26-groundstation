@@ -1,8 +1,8 @@
+# Program: PLOTS_INS_Test.py
 import sys
 import time
 import os
 import serial
-import re
 import numpy as np
 from collections import deque
 from stl import mesh
@@ -27,7 +27,6 @@ LASER_LOGO_PATH = os.path.join(ASSETS_DIR, "LASER_Logo.png")
 UNITYRISE_LOGO_PATH = os.path.join(ASSETS_DIR, "unityrise_logo.png")
 UOL_LOGO_PATH = os.path.join(ASSETS_DIR, "uol_logo.png")
 STL_PATH = os.path.join(BASE_DIR, "rocket.stl") 
-CALIB_FILE = os.path.join(BASE_DIR, "quaternion_calibration.txt")
 
 # -------------------- Serial config --------------------
 if sys.platform.startswith("win"):
@@ -102,37 +101,13 @@ class RocketRotationWidget(gl.GLViewWidget):
         self.setCameraPosition(distance=30)
         self.rocket_scale = 0.01 
         
-        # Initialize calibration offset
-        self.offset_q = QQuaternion(1, 0, 0, 0) # Default identity
-        self.load_calibration()
-
         self.overlay = QLabel(self)
         self.overlay.setStyleSheet("color: white; background-color: rgba(33, 43, 88, 220); padding: 8px; font-family: monospace; border-radius: 5px;")
         self.load_rocket(STL_PATH)
 
-    def load_calibration(self):
-        """Parses the text file for the last 'LEVEL' pose to use as offset."""
-        if not os.path.exists(CALIB_FILE):
-            print("No calibration file found. Using default identity.")
-            return
-
-        try:
-            with open(CALIB_FILE, "r") as f:
-                lines = f.readlines()
-            
-            # Search backwards for the last 'LEVEL' pose
-            for line in reversed(lines):
-                if "Pose: LEVEL" in line:
-                    # Regex to find numbers inside [ ]
-                    match = re.search(r"\[(.*?),(.*?),(.*?),(.*?)\]", line)
-                    if match:
-                        w, i, j, k = map(float, match.groups())
-                        # The offset is the INVERSE of the physical level position
-                        self.offset_q = QQuaternion(w, i, j, k).inverted()
-                        print(f"Loaded Calibration Offset: W:{w} I:{i} J:{j} K:{k}")
-                        return
-        except Exception as e:
-            print(f"Error loading calibration: {e}")
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.overlay.move(10, self.height() - self.overlay.height() - 10)
 
     def load_rocket(self, path):
         try:
@@ -146,23 +121,22 @@ class RocketRotationWidget(gl.GLViewWidget):
             self.rocket = gl.GLBoxItem(color=(1, 0, 0, 1))
             self.addItem(self.rocket)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.overlay.move(10, self.height() - self.overlay.height() - 10)
-
     def set_rotation(self, w, x, y, z):
-        # Current raw sensor reading
-        raw_quat = QQuaternion(w, x, y, z).normalized()
-        
-        # Apply calibration offset (Raw * Offset_Inv)
-        # This makes the 'LEVEL' physical orientation look 'level' in 3D
-        calibrated_quat = raw_quat * self.offset_q
+        # 1. Normalize the incoming quaternion
+        quat = QQuaternion(w, x, y, z).normalized()
         
         transform = QMatrix4x4()
-        transform.rotate(calibrated_quat)
-        self.rocket.setTransform(transform)
         
-        self.overlay.setText(f"RAW -> W: {w:.3f} | X: {x:.3f} | Y: {y:.3f} | Z: {z:.3f}")
+        # 2. THE FIX: Apply a base rotation to the STL.
+        # If your STL is "laying down" on the X-axis, we rotate it 90 deg 
+        # around the Z-axis (or Y) to make it point UP at identity (1,0,0,0).
+        transform.rotate(90, 0, 0, 1) 
+        
+        # 3. Apply the live sensor data
+        transform.rotate(quat)
+        
+        self.rocket.setTransform(transform)
+        self.overlay.setText(f"W: {w:.3f} | X: {x:.3f} | Y: {y:.3f} | Z: {z:.3f}")
         self.overlay.adjustSize()
         self.overlay.move(10, self.height() - self.overlay.height() - 10)
 
@@ -202,11 +176,11 @@ class PLOTSGroundStation(QMainWindow):
         self.status_label = QLabel("Status: Offline")
         self.armed_label = QLabel("Status: Disarmed")
         self.rate_label = QLabel("Rate: 0.0 Hz")
-        self.lat_label = QLabel("Lat: ---")
-        self.lon_label = QLabel("Lon: ---")
+        self.lat_label = QLabel("Latitude: ---")
+        self.lon_label = QLabel("Longitude: ---")
         self.rssi_label = QLabel("RSSI: --- dBm")
         self.alt_label = QLabel("Alt: --- m")
-        self.phase_label = QLabel("Phase: Test")
+        self.phase_label = QLabel("Phase Of Flight: Test")
 
         for lbl in [self.status_label, self.armed_label, self.rate_label, self.lat_label, self.lon_label, self.rssi_label, self.alt_label, self.phase_label]:
             lbl.setFont(ui_font(11))
@@ -309,7 +283,7 @@ class PLOTSGroundStation(QMainWindow):
                 "insX": float(v[9]),
                 "insY": float(v[10]),
                 "insZ": float(v[11]),
-                "RSSI": int(float(v[12].strip()))
+                "RSSI": int(float(v[12].strip())) 
             }
             self.last_packet_time = time.time()
             self.packet_times.append(self.last_packet_time)
