@@ -8,7 +8,6 @@ import numpy as np
 from collections import deque
 from stl import mesh
 
-# Unified to PySide6 for 3D compatibility and Pi 5 support
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QHBoxLayout, QLabel, QComboBox, QStackedWidget
@@ -66,7 +65,7 @@ class PlotLive2D(FigureCanvas):
         self.times.clear()
         self.values.clear()
         self.line, = self.ax.plot([], [], lw=2)
-        self.draw() # Forces instant title update
+        self.draw()
 
     def updatePlot(self):
         if not self.times: return
@@ -93,31 +92,18 @@ class PlotLive3D(FigureCanvas):
 class RocketRotationWidget(gl.GLViewWidget):
     def __init__(self):
         super().__init__()
-        self.setBackgroundColor('w') # Brighter white background
+        self.setBackgroundColor('w')
         self.grid = gl.GLGridItem()
         self.grid.setColor((150, 150, 150, 255)) 
         self.addItem(self.grid)
-        self.setCameraPosition(distance=20)
         
-        self.telemetry_data = []
-        try:
-            if os.path.exists('telemetry_data.csv'):
-                with open('telemetry_data.csv', 'r') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        self.telemetry_data.append([
-                            float(row['w']), float(row['x']), 
-                            float(row['y']), float(row['z'])
-                        ])
-            else:
-                raise FileNotFoundError
-        except:
-            # Generate dummy spin if CSV is missing
-            for i in range(200):
-                angle = np.radians(i * 1.8)
-                self.telemetry_data.append([np.cos(angle/2), 0, np.sin(angle/2), 0])
-            
-        self.current_frame = 0
+        # --- CAMERA DISTANCE ---
+        self.setCameraPosition(distance=30) 
+        
+        # --- MESH SCALE FACTOR ---
+        # Adjust this value to change the rocket size (e.g., 0.001 for smaller)
+        self.rocket_scale = 0.01
+        
         self.overlay = QLabel(self) 
         self.overlay.setStyleSheet("""
             color: white; 
@@ -135,12 +121,18 @@ class RocketRotationWidget(gl.GLViewWidget):
         self.overlay.move(10, self.height() - self.overlay.height() - 10)
 
     def load_rocket(self, path):
-        vibrant_red = (1.0, 0.0, 0.0, 1.0) # Brighter red
+        vibrant_red = (1.0, 0.0, 0.0, 1.0)
         try:
             stl_mesh = mesh.Mesh.from_file(path)
             verts = stl_mesh.vectors.reshape(-1, 3)
+            
+            # Center the model
             center = (verts.max(axis=0) + verts.min(axis=0)) / 2
             verts -= center
+            
+            # Apply scale directly to vertices
+            verts *= self.rocket_scale
+
             self.rocket = gl.GLMeshItem(
                 vertexes=verts, 
                 faces=np.arange(len(verts)).reshape(-1, 3),
@@ -149,24 +141,18 @@ class RocketRotationWidget(gl.GLViewWidget):
             self.addItem(self.rocket)
         except:
             self.rocket = gl.GLBoxItem(color=vibrant_red)
+            self.rocket.scale(5*self.rocket_scale, 5*self.rocket_scale, 15*self.rocket_scale)
             self.addItem(self.rocket)
 
-    def update_telemetry(self):
-        if not self.telemetry_data: return
-        if self.current_frame >= len(self.telemetry_data): self.current_frame = 0
-        
-        w, x, y, z = self.telemetry_data[self.current_frame]
+    def set_rotation(self, w, x, y, z):
         quat = QQuaternion(w, x, y, z).normalized()
-        
         transform = QMatrix4x4()
-        transform.scale(0.01, 0.01, 0.01)
         transform.rotate(quat)
         self.rocket.setTransform(transform)
         
         self.overlay.setText(f"W: {w:.3f} | X: {x:.3f} | Y: {y:.3f} | Z: {z:.3f}")
         self.overlay.adjustSize()
         self.overlay.move(10, self.height() - self.overlay.height() - 10)
-        self.current_frame += 1
 
 # -------------------- Main Mission Control --------------------
 
@@ -191,8 +177,12 @@ class PLOTSGroundStation(QMainWindow):
         self.title_banner.setStyleSheet("background-color: #212b58; color: white; border-radius: 10px; padding: 5px;")
 
         self.ser = None
-        try: self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
+        try: 
+            self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
+            self.ser.reset_input_buffer()
         except: pass
+        
+        self.start_time = time.time()
         self.last_packet_time = 0
 
         self.status_label = QLabel("Status: Offline")
@@ -210,7 +200,7 @@ class PLOTSGroundStation(QMainWindow):
 
         self.visualizer_selector = QComboBox()
         self.visualizer_selector.addItems(["3D Relative Position", "Rocket Attitude (3D Rotation)"])
-        self.visualizer_selector.currentIndexChanged.connect(self.switch_3d_view)
+        self.visualizer_selector.currentIndexChanged.connect(lambda i: self.stacked_3d.setCurrentIndex(i))
 
         self.plot3D = PlotLive3D()
         self.rotation3D = RocketRotationWidget()
@@ -259,26 +249,41 @@ class PLOTSGroundStation(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.readNextPacket)
         self.timer.timeout.connect(self.updateConnectionStatus)
-        self.timer.timeout.connect(self.rotation3D.update_telemetry)
         self.timer.start(INTERVAL_MS)
 
-    def switch_3d_view(self, index):
-        self.stacked_3d.setCurrentIndex(index)
-
-    def changeTopVariable(self, var):
-        self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
-
-    def changeBottomVariable(self, var):
-        self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
-
+    def changeTopVariable(self, var): self.plot2D_top.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
+    def changeBottomVariable(self, var): self.plot2D_bottom.resetPlot(f"{var} vs Time", f"{var} ({UNITS.get(var,'')})")
     def updateConnectionStatus(self):
         if self.ser and time.time() - self.last_packet_time > UART_TIMEOUT_SEC:
             self.status_label.setText("Status: Offline")
 
     def readNextPacket(self):
         if not self.ser or self.ser.in_waiting == 0: return
-        self.last_packet_time = time.time()
-        self.status_label.setText("Status: Online")
+        last_valid_line = None
+        while self.ser.in_waiting:
+            try:
+                decoded = self.ser.readline().decode("ascii", errors="ignore").strip()
+                if "," in decoded: last_valid_line = decoded
+            except: continue
+        if not last_valid_line: return
+        try:
+            v = last_valid_line.split(",")
+            if len(v) < 9: return
+            packet = {
+                "T": time.time() - self.start_time, "Alt": float(v[0]), "Veloc": float(v[1]),
+                "Lat": float(v[2]), "Lon": float(v[3]), "qR": float(v[4]), "qI": float(v[5]),
+                "qJ": float(v[6]), "qK": float(v[7]), "RSSI": int(v[8])
+            }
+            self.last_packet_time = time.time()
+            self.status_label.setText("Status: Online")
+            self.lat_label.setText(f"Lat: {packet['Lat']}"); self.lon_label.setText(f"Lon: {packet['Lon']}")
+            self.rssi_label.setText(f"RSSI: {packet['RSSI']} dBm"); self.alt_label.setText(f"Alt : {packet['Alt']:.2f} m")
+
+            self.plot2D_top.times.append(packet["T"]); self.plot2D_top.values.append(packet[self.combo_top.currentText()]); self.plot2D_top.updatePlot()
+            self.plot2D_bottom.times.append(packet["T"]); self.plot2D_bottom.values.append(packet[self.combo_bottom.currentText()]); self.plot2D_bottom.updatePlot()
+            self.plot3D.posX.append(packet["T"]); self.plot3D.posY.append(packet["Alt"]); self.plot3D.posZ.append(packet["Veloc"]); self.plot3D.updatePlot()
+            self.rotation3D.set_rotation(packet["qR"], packet["qI"], packet["qJ"], packet["qK"])
+        except Exception as e: print(f"Error: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
