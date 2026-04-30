@@ -1,249 +1,297 @@
-import sys, os, math, requests, csv
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from threading import Thread
+import sys
+import os
+import math
+import csv
+import time
+import random
+import urllib.request
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+
+import os
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import QUrl, QTimer
 
-TILE_DIR = "tiles"  # must contain zoom 12–18
 
-# ... all your tile helpers and TileServer unchanged ...
-# ---------------- TILE DOWNLOAD HELPERS ----------------
+# ---------------- CONFIG ----------------
 
-LAT_MIN, LAT_MAX = 53.38, 53.45
-LON_MIN, LON_MAX = -3.05, -2.90
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TILE_DIR = os.path.join(BASE_DIR, "tiles")
 
-OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-HEADERS = {"User-Agent": "LiverpoolOfflineMap/1.0 (Educational)"}
+LAUNCH_LAT = 52.4609
+LAUNCH_LON = -1.9027
 
-def latlon_to_tile(lat, lon, zoom):
-    lat_rad = math.radians(lat)
-    n = 2.0 ** zoom
-    xtile = int((lon + 180.0) / 360.0 * n)
-    ytile = int((1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
-    return xtile, ytile
+SIM_DT = 0.03
+
+
+# 📍 MIDLANDS ROCKETRY BOUNDING BOX (FIXED REGION)
+LAT_MIN = 52.455
+LAT_MAX = 52.467
+LON_MIN = -1.915
+LON_MAX = -1.890
+
+
+# ---------------- TILE SYSTEM ----------------
+
+def deg2tile(lat, lon, z):
+    n = 2 ** z
+    x = int((lon + 180.0) / 360.0 * n)
+    y = int((1.0 - math.log(
+        math.tan(math.radians(lat)) +
+        1 / math.cos(math.radians(lat))
+    ) / math.pi) / 2.0 * n)
+    return x, y
+
 
 def download_tile(z, x, y):
-    url = OSM_URL.format(z=z, x=x, y=y)
-    save_path = f"{TILE_DIR}/{z}/{x}"
-    os.makedirs(save_path, exist_ok=True)
-    tile_file = f"{save_path}/{y}.png"
+    path = os.path.join(TILE_DIR, str(z), str(x), f"{y}.png")
 
-    if os.path.exists(tile_file):
+    if os.path.exists(path):
         return True
+
+    url = f"https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        if r.status_code == 200:
-            with open(tile_file, "wb") as f:
-                f.write(r.content)
-            return True
-        else:
-            print(f"Failed {url}: HTTP {r.status_code}")
-            return False
-    except Exception as e:
-        print(f"Error downloading {url}: {e}")
-        return False
+        print(f"⬇ downloading z{z}/{x}/{y}")
 
-def ensure_tiles():
-    print("Checking for missing tiles...")
-    required_zooms = range(12, 19)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "MidlandsRocketryTelemetry/1.0"}
+        )
 
-    for z in required_zooms:
-        x_min, y_max = latlon_to_tile(LAT_MIN, LON_MIN, z)
-        x_max, y_min = latlon_to_tile(LAT_MAX, LON_MAX, z)
+        data = urllib.request.urlopen(req, timeout=10).read()
 
-        x1, x2 = sorted([x_min, x_max])
-        y1, y2 = sorted([y_min, y_max])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
 
-        total = (x2 - x1 + 1) * (y2 - y1 + 1)
-        count = 0
+        time.sleep(1.2 + random.random())  # respect OSM limits
 
-        print(f"Zoom {z}: downloading {total} tiles if missing...")
-
-        for x in range(x1, x2 + 1):
-            for y in range(y1, y2 + 1):
-                download_tile(z, x, y)
-                count += 1
-                if count % 50 == 0:
-                    print(f"  {count}/{total} tiles processed...")
-
-    print("Tile download complete. Offline map ready.")
-
-def verify_tiles():
-    required_zooms = ["12", "13", "14", "15", "16", "17", "18"]
-
-    if not os.path.isdir(TILE_DIR):
-        print("Tile directory missing. Creating and downloading tiles...")
-        os.makedirs(TILE_DIR, exist_ok=True)
-        ensure_tiles()
         return True
 
-    missing = False
-
-    for z in required_zooms:
-        zpath = os.path.join(TILE_DIR, z)
-        if not os.path.isdir(zpath):
-            print(f"Missing zoom folder {z}, downloading tiles...")
-            missing = True
-            continue
-
-        has_tiles = any(
-            fname.endswith(".png")
-            for root, dirs, files in os.walk(zpath)
-            for fname in files
-        )
-        if not has_tiles:
-            print(f"Zoom {z} folder empty, downloading tiles...")
-            missing = True
-
-    if missing:
-        ensure_tiles()
-    else:
-        print("All required tiles already present.")
-
-    return True
-
-# ---------------- LOCAL TILE SERVER ----------------
-
-class TileServer(BaseHTTPRequestHandler):
-    def log_message(self, *args):
-        return
-
-    def do_GET(self):
-        parts = self.path.strip("/").split("/")
-        if len(parts) != 3:
-            self.send_error(404)
-            return
-
-        z, x, y_png = parts
-        y = y_png.replace(".png", "")
-        tile_path = f"{TILE_DIR}/{z}/{x}/{y}.png"
-
-        if not os.path.exists(tile_path):
-            self.send_error(404)
-            return
-
-        with open(tile_path, "rb") as f:
-            data = f.read()
-
-        self.send_response(200)
-        self.send_header("Content-type", "image/png")
-        self.end_headers()
-        self.wfile.write(data)
-
-def start_server():
-    HTTPServer(("localhost", 5000), TileServer).serve_forever()
+    except Exception as e:
+        print("❌ tile error:", e)
+        return False
 
 
-# ---------------- HTML MAP ----------------
+def get_tile_bounds(z):
+    x_min, y_max = deg2tile(LAT_MIN, LON_MIN, z)
+    x_max, y_min = deg2tile(LAT_MAX, LON_MAX, z)
+    return x_min, x_max, y_min, y_max
+
+
+def ensure_tiles():
+    print("🛰 Building Midlands Rocketry tile cache...")
+
+    ZOOMS = range(12, 19)
+
+    for z in ZOOMS:
+        print(f"📦 Zoom {z}")
+
+        x_min, x_max, y_min, y_max = get_tile_bounds(z)
+
+        for x in range(x_min, x_max + 1):
+            for y in range(y_min, y_max + 1):
+
+                path = os.path.join(TILE_DIR, str(z), str(x), f"{y}.png")
+
+                if os.path.exists(path):
+                    continue
+
+                download_tile(z, x, y)
+
+    print("✅ Tile cache ready (Midlands locked)")
+
+
+# ---------------- OPTIONAL LOCAL TILE SERVER ----------------
+
+def start_tile_server():
+    os.chdir(BASE_DIR)
+
+    server = HTTPServer(("127.0.0.1", 8000), SimpleHTTPRequestHandler)
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    print("🌐 Tile server running at http://127.0.0.1:8000")
+
+
+# ---------------- HTML ----------------
+
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8"/>
-    <title>Liverpool Offline Map</title>
-    <link rel="stylesheet" href="leaflet/leaflet.css"/>
-    <script src="leaflet/leaflet.js"></script>
-    <style>html, body, #map { height: 100%; margin: 0; }</style>
+<meta charset="utf-8"/>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+html, body, #map { height: 100%; margin: 0; }
+
+.rocket {
+  width: 14px;
+  height: 14px;
+  background: #00aaff;
+  border-radius: 50%;
+  box-shadow: 0 0 12px #00aaff;
+}
+
+.launch {
+  width: 10px;
+  height: 10px;
+  background: red;
+  border-radius: 50%;
+  box-shadow: 0 0 10px red;
+}
+</style>
 </head>
+
 <body>
 <div id="map"></div>
 
 <script>
-    var map = L.map('map', {
-        minZoom: 12,
-        maxZoom: 18
-    }).setView([53.4066, -2.9665], 15);
 
-    L.tileLayer('http://localhost:5000/{z}/{x}/{y}.png', {
-        minZoom: 12,
-        maxZoom: 18,
-        noWrap: true,
-        bounds: L.latLngBounds(
-            L.latLng(53.38, -3.05),
-            L.latLng(53.45, -2.90)
-        ),
-        attribution: "Offline tiles"
-    }).addTo(map);
+// ---------------- MAP ----------------
+var map = L.map('map').setView([52.4609, -1.9027], 14);
 
-    var userLat = 53.4066;
-    var userLon = -2.9665;
 
-    var userMarker = L.marker([userLat, userLon]).addTo(map)
-        .bindPopup("Telemetry position");
+// ---------------- TILE LAYER (LOCAL CACHE FIRST) ----------------
+L.tileLayer('tiles/{z}/{x}/{y}.png', {
+    minZoom: 12,
+    maxZoom: 18,
+    noWrap: true
+}).addTo(map);
 
-    var userCircle = L.circle([userLat, userLon], {
-        radius: 40,
-        color: "blue",
-        fillColor: "#3f8cff",
-        fillOpacity: 0.3
-    }).addTo(map);
 
-    function updateMarker(lat, lon) {
-        userLat = lat;
-        userLon = lon;
-        userMarker.setLatLng([lat, lon]);
-        userCircle.setLatLng([lat, lon]);
-        // map.panTo([lat, lon], {animate: true});
-    }
+// ---------------- LAUNCH SITE ----------------
+var launch = L.marker([52.4609, -1.9027], {
+    icon: L.divIcon({
+        className: "launch",
+        html: `<div style="transform: translateY(-22px); color:white; font-size:12px;
+        text-shadow:0 0 5px black;">Launch Site</div>`
+    })
+}).addTo(map);
+
+
+// ---------------- ROCKET ----------------
+var rocket = L.marker([52.4609, -1.9027], {
+    icon: L.divIcon({ className: "rocket" })
+}).addTo(map);
+
+
+// ---------------- SAFE UPDATE ----------------
+window.updateMarker = function(lat, lon, zoom) {
+
+    rocket.setLatLng([lat, lon]);
+
+    map.setView([lat, lon], zoom, {
+        animate: true
+    });
+};
+
 </script>
-
 </body>
 </html>
 """
+
 
 # ---------------- MAIN APP ----------------
 
 class MapWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Liverpool Offline Map")
+        self.setWindowTitle("Midlands Rocketry Telemetry")
 
         self.view = QWebEngineView()
-        self.view.setHtml(HTML, QUrl("file:///"))
         self.setCentralWidget(self.view)
 
-        # --- telemetry state ---
-        self.telemetry = self.load_telemetry("telemetry.csv")
-        self.telemetry_index = 0
+        self.view.setHtml(HTML, QUrl.fromLocalFile(BASE_DIR + os.sep))
+        self.view.loadFinished.connect(self.start)
 
-        self.timer = QTimer(self)
-        self.timer.setInterval(30)  # ~0.03 s
-        self.timer.timeout.connect(self.step_telemetry)
+        self.data = self.load_csv("telemetry.csv")
+
+        self.current_time = 0.0
+        self.i = 0
+
+        self.s_lat = None
+        self.s_lon = None
+        self.alpha = 0.08
+
+        self.timer = QTimer()
+        self.timer.setInterval(int(SIM_DT * 1000))
+        self.timer.timeout.connect(self.step)
+
+    def start(self):
         self.timer.start()
 
-    def load_telemetry(self, path):
-        data = []
-        if not os.path.exists(path):
-            print(f"Telemetry file {path} not found")
-            return data
-        with open(path, newline="") as f:
-            r = csv.DictReader(f)
-            for row in r:
-                try:
-                    lat = float(row["lat"])
-                    lon = float(row["lon"])
-                    data.append((lat, lon))
-                except Exception:
-                    continue
-        print(f"Loaded {len(data)} telemetry points")
-        return data
+    def load_csv(self, path):
+        with open(path) as f:
+            return [(float(r["t"]), float(r["lat"]), float(r["lon"]))
+                    for r in csv.DictReader(f)]
 
-    def step_telemetry(self):
-        if not self.telemetry:
+    def interpolate(self, t):
+        while self.i < len(self.data) - 2 and self.data[self.i + 1][0] < t:
+            self.i += 1
+
+        t1, lat1, lon1 = self.data[self.i]
+        t2, lat2, lon2 = self.data[self.i + 1]
+
+        if t2 == t1:
+            return lat1, lon1
+
+        r = (t - t1) / (t2 - t1)
+
+        return (
+            lat1 + (lat2 - lat1) * r,
+            lon1 + (lon2 - lon1) * r
+        )
+
+    def step(self):
+        if not self.data:
             return
-        lat, lon = self.telemetry[self.telemetry_index]
-        js = f"updateMarker({lat}, {lon});"
+
+        self.current_time += SIM_DT
+
+        lat, lon = self.interpolate(self.current_time)
+
+        if self.s_lat is None:
+            self.s_lat, self.s_lon = lat, lon
+        else:
+            self.s_lat = self.alpha * lat + (1 - self.alpha) * self.s_lat
+            self.s_lon = self.alpha * lon + (1 - self.alpha) * self.s_lon
+
+        zoom = self.get_zoom(self.s_lat, self.s_lon)
+
+        js = f"window.updateMarker({self.s_lat}, {self.s_lon}, {zoom});"
         self.view.page().runJavaScript(js)
 
-        self.telemetry_index += 1
-        if self.telemetry_index >= len(self.telemetry):
-            self.telemetry_index = 0  # loop, or call self.timer.stop()
+    def get_zoom(self, lat, lon):
+        d = math.hypot(lat - LAUNCH_LAT, lon - LAUNCH_LON)
+
+        if d < 0.0005:
+            return 18
+        elif d < 0.002:
+            return 16
+        elif d < 0.01:
+            return 14
+        return 12
+
+
+# ---------------- RUN ----------------
 
 if __name__ == "__main__":
-    verify_tiles()
-    Thread(target=start_server, daemon=True).start()
+
+    os.makedirs(TILE_DIR, exist_ok=True)
+
+    ensure_tiles()
+
+    start_tile_server()
+
     app = QApplication(sys.argv)
     w = MapWindow()
     w.show()

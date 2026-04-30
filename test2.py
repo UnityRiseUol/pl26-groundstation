@@ -32,7 +32,7 @@ STL_PATH = os.path.join(BASE_DIR, "rocket.stl")
 if sys.platform.startswith("win"):
     SERIAL_PORT = "COM3"
 else:
-    SERIAL_PORT = "/dev/ttyAMA0"
+    SERIAL_PORT = "/dev/ttyACM0"
 
 BAUD_RATE = 115200
 INTERVAL_MS = 30
