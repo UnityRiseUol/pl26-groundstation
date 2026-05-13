@@ -1,0 +1,108 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta charset="utf-8"/>
+
+<link rel="stylesheet" href="file:///home/plots/pl26-groundstation/leaflet/leaflet.css"/>
+
+<style>
+
+html, body, #map {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: white;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script src="file:///home/plots/pl26-groundstation/leaflet/leaflet.js"></script>
+
+<script>
+
+window.onload = function()
+{
+
+    if (typeof L === 'undefined')
+    {
+        document.body.innerHTML =
+            "<h2 style='color:red'>Leaflet failed to load.</h2>";
+        return;
+    }
+
+    var map = L.map('map').setView(
+        [52.668, -1.5245],
+        15
+    );
+
+    L.tileLayer(
+        'file:///home/plots/pl26-groundstation/tiles/{z}/{x}/{y}.png',
+        {
+            attribution: 'Offline Tiles',
+            minZoom: 1,
+            maxZoom: 19,
+            tileSize: 256,
+            noWrap: true
+        }
+    ).addTo(map);
+
+    // ====================================================
+    // LAUNCH SITE
+    // ====================================================
+
+    var launchMarker = L.marker(
+        [52.668, -1.5245]
+    ).addTo(map);
+
+    launchMarker.bindPopup(
+        "Midlands Rocketry Club Launch Site"
+    );
+
+    // ====================================================
+    // LIVE ROCKET
+    // ====================================================
+
+    var rocketMarker = L.marker(
+        [52.668, -1.5245]
+    ).addTo(map);
+
+    var flightPath = L.polyline(
+        [],
+        {
+            color: 'red',
+            weight: 3
+        }
+    ).addTo(map);
+
+    // ====================================================
+    // UPDATE FUNCTION
+    // ====================================================
+
+    window.updateRocket = function(lat, lon)
+    {
+
+        var pos = [lat, lon];
+
+        rocketMarker.setLatLng(pos);
+
+        flightPath.addLatLng(pos);
+
+        map.panTo(pos);
+    }
+}
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,70 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<!-- OFFLINE FIRST -->
+<link rel="stylesheet" href="file:////home/plots/pl26-groundstation/leaflet/leaflet.css"/>
+
+<!-- IMPORTANT: load Leaflet synchronously -->
+<script src="file:////home/plots/pl26-groundstation/leaflet/leaflet.js"></script>
+
+<style>
+html, body {
+    height: 100%;
+    margin: 0;
+}
+
+#map {
+    height: 100%;
+    width: 100%;
+}
+</style>
+
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script>
+
+// HARD CHECK (this is your debug tool)
+if (typeof L === "undefined") {
+    console.log("Leaflet NOT loaded (offline file missing or blocked)");
+} else {
+    console.log("Leaflet loaded ✔");
+}
+
+window.onload = function() {
+
+    if (!window.L) {
+        console.log("Leaflet missing at runtime");
+        return;
+    }
+
+    var map = L.map('map').setView([52.668, -1.5245], 14);
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+    }).addTo(map);
+
+    var rocket = L.marker([52.668, -1.5245]).addTo(map);
+    var path = L.polyline([], {color:'cyan'}).addTo(map);
+
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 500);
+
+    window.updateMarker = function(lat, lon) {
+        var pos = new L.LatLng(lat, lon);
+        rocket.setLatLng(pos);
+        path.addLatLng(pos);
+        map.panTo(pos);
+    };
+};
+
+</script>
+
+</body>
+</html>

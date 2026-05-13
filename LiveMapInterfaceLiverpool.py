@@ -181,7 +181,7 @@ html, body, #map {{ height: 100%; margin: 0; }}
 .launch {{
   width: 10px;
   height: 10px;
-  background: red;
+  background: red; 
   border-radius: 50%;
   box-shadow: 0 0 10px red;
 }}
