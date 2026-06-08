@@ -1,13 +1,8 @@
-#code works, online and offline, and is live over UART, makes backup
-#file. Pls dont change x
-
 import sys
 import time
 import os
 import json
-import csv  # Added for backup logging purposes
 import numpy as np
-import serial
 from collections import deque
 from stl import mesh
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -26,34 +21,22 @@ import pyqtgraph.opengl as gl
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "Assets")
 
+CSV_PATH = os.path.join(BASE_DIR, "telemetryTamworth.csv")
 FONT_PATH = os.path.join(ASSETS_DIR, "Orbitron-VariableFont_wght.ttf")
 LASER_LOGO_PATH = os.path.join(ASSETS_DIR, "LASER_Logo.png")
 UNITYRISE_LOGO_PATH = os.path.join(ASSETS_DIR, "unityrise_logo.png")
 UOL_LOGO_PATH = os.path.join(ASSETS_DIR, "uol_logo.png")
 STL_PATH = os.path.join(BASE_DIR, "rocket.stl") 
 
-# Backup data file path definition
-BACKUP_FILE_PATH = os.path.join(BASE_DIR, "telemetry_backup.csv")
+# -------------------- Configuration --------------------
+INTERVAL_MS = 100
+LAUNCH_LAT = 52.668
+LAUNCH_LON = -1.5245
 
-# -------------------- UART Configuration --------------------
-if sys.platform.startswith("win"):
-    SERIAL_PORT = "COM3"
-else:
-    SERIAL_PORT = "/dev/ttyACM0"
-
-BAUD_RATE = 115200
-INTERVAL_MS = 30
-UART_TIMEOUT_SEC = 2.0
-
-# Updated coordinates to University of Liverpool EEE Building
-LAUNCH_LAT = 53.4060
-LAUNCH_LON = -2.9656
-
-# FIXED: Aligned structure indexing matching incoming raw hardware string (12 telemetry metrics array)
 DATA_MAP = {
-    "Lat": 0, "Lon": 1, "Alt": 2, "Veloc": 3, 
-    "qR": 4, "qI": 5, "qJ": 6, "qK": 7,
-    "insX": 8, "insY": 9, "insZ": 10, "RSSI": 11
+    "T": 0, "Lat": 1, "Lon": 2, "Alt": 3, "Veloc": 4, 
+    "qR": 5, "qI": 6, "qJ": 7, "qK": 8,
+    "insX": 9, "insY": 10, "insZ": 11, "RSSI": 12
 }
 
 # -------------------- Visualizers --------------------
@@ -150,18 +133,13 @@ class MapWidget(QWebEngineView):
         local_css = os.path.join(BASE_DIR, "leaflet.css")
         local_js = os.path.join(BASE_DIR, "leaflet.js")
         
-        css_source = QUrl.fromLocalFile(local_css).toString() if os.path.exists(local_css) else "leaflet.css"
-        js_source = QUrl.fromLocalFile(local_js).toString() if os.path.exists(local_js) else "leaflet.js"
+        css_source = QUrl.fromLocalFile(local_css).toString() if os.path.exists(local_css) else "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        js_source = QUrl.fromLocalFile(local_js).toString() if os.path.exists(local_js) else "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 
-        # FIXED: Build a fully qualified absolute file system URI for the local tiles folder
-        local_tiles_dir = os.path.join(BASE_DIR, "tiles")
-        if os.path.exists(local_tiles_dir):
-            # Creates absolute string format: "file:///C:/path/to/tiles/{z}/{x}/{y}.png"
-            tile_url = QUrl.fromLocalFile(local_tiles_dir).toString() + "/{z}/{x}/{y}.png"
-        else:
-            # Clean fallback rendering visual indicators
-            tile_url = ""
+        local_tile_path = "tiles/{z}/{x}/{y}.png"
 
+        # Define a bounding box around Tamworth/Launch site where your tiles exist.
+        # Adjusted roughly to cover a standard Zoom 12-14 offline area.
         self.osm_html = f"""
         <!DOCTYPE html>
         <html>
@@ -169,50 +147,56 @@ class MapWidget(QWebEngineView):
             <link rel="stylesheet" href="{css_source}" />
             <script src="{js_source}"></script>
             <style>
-                body {{ margin: 0; padding: 0; background: #e5e9f2; font-family: sans-serif; overflow: hidden; }}
-                #map {{ width: 100vw; height: 100vh; background-color: #e5e9f2; }}
+                body {{ margin: 0; padding: 0; background: #111630; font-family: sans-serif; overflow: hidden; }}
+                #map {{ width: 100vw; height: 100vh; background-color: #111630; }}
                 .offline-grid-active {{
-                    background-color: #e5e9f2 !important;
                     background-image: 
-                        linear-gradient(rgba(33, 43, 88, 0.15) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(33, 43, 88, 0.15) 1px, transparent 1px);
-                    background-size: 40px 40px;
+                        linear-gradient(rgba(33, 43, 88, 0.4) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(33, 43, 88, 0.4) 1px, transparent 1px);
+                    background-size: 30px 30px;
                     background-position: center;
                 }}
-                .leaflet-container {{ background: #e5e9f2 !important; }}
+                .leaflet-container {{ background: transparent !important; }}
             </style>
         </head>
         <body>
-            <div id="map" class="offline-grid-active"></div>
+            <div id="map"></div>
             <script>
                 var map, rocketMarker, launchMarker, path;
 
                 function initMap() {{
                     if (typeof L === 'undefined') {{
-                        console.error("Leaflet.js failed to load!");
+                        document.getElementById('map').classList.add('offline-grid-active');
                         return;
                     }}
 
                     try {{
+                        // Define bounds to prevent looking at missing tiles. 
+                        // Adjust these coordinates if your offline tile generation radius is larger/smaller.
+                        var southWest = L.latLng({LAUNCH_LAT} - 0.15, {LAUNCH_LON} - 0.25);
+                        var northEast = L.latLng({LAUNCH_LAT} + 0.15, {LAUNCH_LON} + 0.25);
+                        var bounds = L.latLngBounds(southWest, northEast);
+
                         map = L.map('map', {{ 
                             fadeAnimation: false, 
                             trackResize: true,
-                            minZoom: 10,
-                            maxZoom: 19 
-                        }}).setView([{LAUNCH_LAT}, {LAUNCH_LON}], 18);
+                            minZoom: 12,
+                            maxZoom: 14,
+                            maxBounds: bounds,         // Lock user inside this box
+                            maxBoundsViscosity: 1.0     // 1.0 completely blocks dragging outside bounds
+                        }}).setView([{LAUNCH_LAT}, {LAUNCH_LON}], 14);
                         
-                        // Using the absolute file URL path string generated safely by PySide
-                        L.tileLayer('{tile_url}', {{
-                            minZoom: 10,
-                            maxZoom: 19,
-                            errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-                            fallbackOnUrlError: true,
-                            attribution: '&copy; OpenStreetMap Offline'
+                        L.tileLayer('{local_tile_path}', {{
+                            minZoom: 12,
+                            maxZoom: 14,
+                            errorTileUrl: '', 
+                            attribution: 'Offline Maps',
+                            bounds: bounds              // Tells leaflet not to request tiles outside this area
                         }}).addTo(map);
 
                         launchMarker = L.circleMarker([{LAUNCH_LAT}, {LAUNCH_LON}], {{
                             radius: 8, fillColor: "#ff0000", color: "#ffffff", weight: 2, fillOpacity: 1
-                        }}).addTo(map).bindPopup("Launch Site (UoL EEE)");
+                        }}).addTo(map).bindPopup("Launch Site");
 
                         rocketMarker = L.circleMarker([{LAUNCH_LAT}, {LAUNCH_LON}], {{
                             radius: 10, fillColor: "#0078ff", color: "#ffffff", weight: 3, fillOpacity: 1
@@ -221,6 +205,7 @@ class MapWidget(QWebEngineView):
                         path = L.polyline([], {{color: '#ffaa00', weight: 4}}).addTo(map);
                     }} catch (e) {{ 
                         console.log("Map Initialization Error: " + e); 
+                        document.getElementById('map').classList.add('offline-grid-active');
                     }}
                 }}
 
@@ -229,7 +214,9 @@ class MapWidget(QWebEngineView):
                         var newPos = [lat, lon];
                         rocketMarker.setLatLng(newPos);
                         path.addLatLng(newPos);
-                        map.setView(newPos, map.getZoom(), {{ animate: false }}); 
+                        
+                        // Keeps the rocket centered seamlessly on every update
+                        map.setView(newPos, map.getZoom(), {{ animate: true }}); 
                     }}
                 }}
                 
@@ -276,29 +263,12 @@ class PLOTSGroundStation(QMainWindow):
         super().__init__()
         self.setWindowTitle("LASER - UnityRise Mission Control - PL-26")
         self.resize(1280, 800) 
+        self.last_row_index = 0 
         self.packet_times = deque(maxlen=50)
         self.max_alt = -9999.0
-        self.start_time = time.time()
-        self.last_packet_time = time.time()  # Tracked for timeout events
 
-        # Allocate historical tracking indices maps
         self.history = {k: [] for k in DATA_MAP.keys()}
         self.history_t = []
-
-        # Initialize the backup log file with a clean header configuration if it doesn't exist
-        if not os.path.exists(BACKUP_FILE_PATH):
-            try:
-                with open(BACKUP_FILE_PATH, mode='w', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["System_Timestamp", "Mission_T", "Lat", "Lon", "Alt", "Veloc", "qR", "qI", "qJ", "qK", "insX", "insY", "insZ", "RSSI"])
-            except Exception as backup_err:
-                print(f"Failed to initialize backup log file: {backup_err}")
-
-        # -------------------- UART Connection Initialization --------------------
-        try:
-            self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.01)
-        except: 
-            self.ser = None  # UI opens perfectly even if hardware is missing
 
         font_id = QFontDatabase.addApplicationFont(FONT_PATH)
         self.ui_font_family = QFontDatabase.applicationFontFamilies(font_id)[0] if font_id != -1 else "Arial"
@@ -345,8 +315,6 @@ class PLOTSGroundStation(QMainWindow):
         left_layout.addWidget(QLabel("Bottom Graph Variable:"))
         left_layout.addWidget(self.combo_bottom)
         left_layout.addWidget(self.plot2D_bottom, 1)
-        
-        main_content.addLayout(left_layout, 1)
 
         # Right side: Visuals and Labels
         right_layout = QVBoxLayout()
@@ -373,14 +341,10 @@ class PLOTSGroundStation(QMainWindow):
         else:
             self.uol_img.setText("[UOL LOGO]")
         self.uol_img.setAlignment(Qt.AlignCenter)
-        
-        # Combined wrapper layout handling for dual references to the underlying status string
         self.status_label = QLabel("Status: Disarmed")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setFont(ui_font(10))
         self.status_label.setStyleSheet("color: #cc0000; font-weight: bold; padding: 5px;")
-        self.armed_label = self.status_label  # Linked to ensure programmatic aliases update seamlessly
-        
         uol_vbox.addWidget(self.uol_img)
         uol_vbox.addWidget(self.status_label)
 
@@ -436,154 +400,125 @@ class PLOTSGroundStation(QMainWindow):
             if lbl != self.rssi_label: metadata_row.addStretch()
             
         right_layout.addLayout(metadata_row)
-        main_content.addLayout(right_layout, 1)
 
-        # Timer setup combining telemetry data loops & status logic checks
+        main_content.addLayout(left_layout, 2)
+        main_content.addLayout(right_layout, 3)
+
         self.timer = QTimer()
         self.timer.timeout.connect(self.readNextPacket)
-        self.timer.timeout.connect(self.updateConnectionStatus)
-        self.timer.start(INTERVAL_MS) # 30 milliseconds
+        self.timer.start(INTERVAL_MS)
 
     def handle_interface_switch(self, index):
         self.stacked_3d.setCurrentIndex(index)
         if index == 0:  
             self.mapWidget.refresh_and_restore()
 
-    def updateConnectionStatus(self):
-        if not self.ser:
-            self.status_label.setText("Status: NO HARDWARE")
+    def readNextPacket(self):
+        if not os.path.exists(CSV_PATH): 
+            self.status_label.setText("Status: NO FILE")
             self.status_label.setStyleSheet("color: #cc0000; font-weight: bold;")
             self.alt_label.setText("Alt: ---m")
-        elif self.ser and time.time() - self.last_packet_time > UART_TIMEOUT_SEC:
-            self.status_label.setText("Status: Offline")
-            self.armed_label.setText("Status: Disarmed")
-            self.status_label.setStyleSheet("color: #cc0000; font-weight: bold;")
-
-    def readNextPacket(self):
-        if not self.ser or self.ser.in_waiting == 0: 
             return
             
-        last_valid_line = None
-        while self.ser.in_waiting:
-            try:
-                decoded = self.ser.readline().decode("ascii", errors="ignore").strip()
-                # keeps overwriting last_valid_line until the buffer is empty
-                if "," in decoded: 
-                    last_valid_line = decoded
-            except: 
-                continue
-
-        if not last_valid_line:
-            return
-
         try:
-            v = last_valid_line.split(",")
-            if len(v) != 12:  # FIXED: Now matches the exact 12 values coming off the raw line
-                return
+            with open(CSV_PATH, 'r') as f:
+                lines = f.readlines()
+                
+                if len(lines) > self.last_row_index:
+                    line = lines[self.last_row_index].strip()
+                    self.last_row_index += 1
+                    
+                    if not line or line.lower().startswith('t') or "," not in line:
+                        return
+                    
+                    raw_data = [x.strip() for x in line.split(",")]
+                    
+                    def get_val(idx, default=None):
+                        if idx < len(raw_data):
+                            try: return float(raw_data[idx])
+                            except: return default
+                        return default
 
-            packet = {
-                "T": time.time() - self.start_time,
-                "Lat": float(v[0]),
-                "Lon": float(v[1]),
-                "Alt": float(v[2]),
-                "Veloc": float(v[3]),
-                "qR": float(v[4]),
-                "qI": float(v[5]),
-                "qJ": float(v[6]),
-                "qK": float(v[7]),
-                "insX": float(v[8]),
-                "insY": float(v[9]),
-                "insZ": float(v[10]),
-                "RSSI": int(float(v[11].strip()))
-            }
+                    t = get_val(DATA_MAP["T"], 0.0)
+                    lat = get_val(DATA_MAP["Lat"], LAUNCH_LAT)
+                    lon = get_val(DATA_MAP["Lon"], LAUNCH_LON)
+                    alt = get_val(DATA_MAP["Alt"], None)
+                    veloc = get_val(DATA_MAP["Veloc"], 0.0)
+                    rssi_val = get_val(DATA_MAP["RSSI"], -70.0)
+                    
+                    if alt is not None:
+                        self.alt_label.setText(f"Alt: {alt:.2f}m")
+                        if self.max_alt == -9999.0 or alt > self.max_alt: 
+                            self.max_alt = alt
+                    else:
+                        self.alt_label.setText("Alt: ---m")
+                        alt = 0.0
 
-            self.last_packet_time = time.time()  # Keep-alive stroke tick reset
+                    self.history_t.append(t)
+                    for key, index in DATA_MAP.items():
+                        if key == "Alt":
+                            self.history[key].append(alt)
+                        else:
+                            self.history[key].append(get_val(index, 1.0 if key=="qR" else 0.0))
 
-            # Export incoming live packet values immediately into the local data backup file
-            try:
-                with open(BACKUP_FILE_PATH, mode='a', newline='') as backup_file:
-                    writer = csv.writer(backup_file)
-                    writer.writerow([
-                        time.time(), packet["T"], packet["Lat"], packet["Lon"], packet["Alt"],
-                        packet["Veloc"], packet["qR"], packet["qI"], packet["qJ"], packet["qK"],
-                        packet["insX"], packet["insY"], packet["insZ"], packet["RSSI"]
-                    ])
-            except Exception as write_err:
-                print(f"Backup tracking file write failure: {write_err}")
+                    qr, qi, qj, qk = (get_val(DATA_MAP[k], 1.0 if k=="qR" else 0.0) for k in ["qR", "qI", "qJ", "qK"])
+                    ix, iy, iz = (get_val(DATA_MAP[k], 0.0) for k in ["insX", "insY", "insZ"])
+                    
+                    is_moving = abs(veloc) > 0.5
+                    
+                    if not is_moving:
+                        if self.max_alt < 10.0 and alt < 5.0:
+                            phase_val = "ON PAD (STATIONARY)"
+                        elif self.max_alt > 20.0 and alt < 5.0:
+                            phase_val = "LANDED (STATIONARY)"
+                        else:
+                            phase_val = "STATIONARY"
+                    else:
+                        if alt < 5.0 and self.max_alt < 10.0:
+                            phase_val = "ON PAD (MOVING)"
+                        elif alt > (self.history["Alt"][-2] if len(self.history["Alt"])>1 else alt) + 0.2:
+                            phase_val = "ASCENT"
+                        elif alt < self.max_alt - 2.0 and alt > 5.0:
+                            phase_val = "DESCENT"
+                        elif alt < 5.0 and self.max_alt > 20.0:
+                            phase_val = "LANDED"
+                        else:
+                            phase_val = "COASTING"
 
-            # Text Label UI Updates
-            self.lat_label.setText(f"Lat: {packet['Lat']:.5f}")
-            self.lon_label.setText(f"Lon: {packet['Lon']:.5f}")
-            self.alt_label.setText(f"Alt : {packet['Alt']:.2f} m")
-            self.rssi_label.setText(f"RSSI: {packet['RSSI']:.0f} dBm")
-            
-            self.status_label.setText("Status: RECEIVING")
-            self.status_label.setStyleSheet("color: #00aa00; font-weight: bold;")
+                    self.phase_label.setText(f"Phase Of Flight: {phase_val}")
+                    self.lat_label.setText(f"Lat: {lat:.5f}")
+                    self.lon_label.setText(f"Long: {lon:.5f}")
+                    self.rssi_label.setText(f"RSSI: {rssi_val:.0f} dBm")
+                    self.status_label.setText("Status: RECEIVING")
+                    self.status_label.setStyleSheet("color: #00aa00; font-weight: bold;")
 
-            # Track global state records metrics
-            if packet["Alt"] > self.max_alt:
-                self.max_alt = packet["Alt"]
+                    self.mapWidget.update_position(lat, lon)
+                    
+                    v_top = self.combo_top.currentText()
+                    self.plot2D_top.times = self.history_t
+                    self.plot2D_top.values = self.history[v_top]
+                    self.plot2D_top.updatePlot(f"Live {v_top}")
 
-            # Save arrays updates
-            self.history_t.append(packet["T"])
-            for key in DATA_MAP.keys():
-                self.history[key].append(packet[key])
+                    v_btm = self.combo_bottom.currentText()
+                    self.plot2D_bottom.times = self.history_t
+                    self.plot2D_bottom.values = self.history[v_btm]
+                    self.plot2D_bottom.updatePlot(f"Live {v_btm}")
 
-            # Flight Phase tracking calculation rules
-            is_moving = abs(packet["Veloc"]) > 0.5
-            if not is_moving:
-                if self.max_alt < 10.0 and packet["Alt"] < 5.0:
-                    phase_val = "ON PAD (STATIONARY)"
-                elif self.max_alt > 20.0 and packet["Alt"] < 5.0:
-                    phase_val = "LANDED (STATIONARY)"
-                else:
-                    phase_val = "STATIONARY"
-            else:
-                if packet["Alt"] < 5.0 and self.max_alt < 10.0:
-                    phase_val = "ON PAD (MOVING)"
-                elif packet["Alt"] > (self.history["Alt"][-2] if len(self.history["Alt"]) > 1 else packet["Alt"]) + 0.2:
-                    phase_val = "ASCENT"
-                elif packet["Alt"] < self.max_alt - 2.0 and packet["Alt"] > 5.0:
-                    phase_val = "DESCENT"
-                elif packet["Alt"] < 5.0 and self.max_alt > 20.0:
-                    phase_val = "LANDED"
-                else:
-                    phase_val = "COASTING"
-            self.phase_label.setText(f"Phase Of Flight: {phase_val}")
+                    self.plot3D.posX.append(ix); self.plot3D.posY.append(iy); self.plot3D.posZ.append(iz)
+                    if self.vis_selector.currentText() == "3D Trajectory":
+                        self.plot3D.updatePlot()
+                    
+                    self.rotation3D.set_rotation(qr, qi, qj, qk)
 
-            # Map Tracking Position Updates
-            self.mapWidget.update_position(packet["Lat"], packet["Lon"])
-
-            # 2D Chart Updates
-            v_top = self.combo_top.currentText()
-            self.plot2D_top.times = self.history_t
-            self.plot2D_top.values = self.history[v_top]
-            self.plot2D_top.updatePlot(f"Live {v_top}")
-
-            v_btm = self.combo_bottom.currentText()
-            self.plot2D_bottom.times = self.history_t
-            self.plot2D_bottom.values = self.history[v_btm]
-            self.plot2D_bottom.updatePlot(f"Live {v_btm}")
-
-            # 3D Path Updates
-            self.plot3D.posX.append(packet["insX"])
-            self.plot3D.posY.append(packet["insY"])
-            self.plot3D.posZ.append(packet["insZ"])
-            if self.vis_selector.currentText() == "3D Trajectory":
-                self.plot3D.updatePlot()
-
-            # 3D Rocket Attitude Rotation Update
-            self.rotation3D.set_rotation(packet["qR"], packet["qI"], packet["qJ"], packet["qK"])
-
-            # Data frequency telemetry updates calculation
-            now = time.time()
-            self.packet_times.append(now)
-            if len(self.packet_times) > 1:
-                hz = len(self.packet_times) / (self.packet_times[-1] - self.packet_times[0])
-                self.rate_label.setText(f"Rate: {hz:.1f} Hz")
-                                                                        
+                    now = time.time()
+                    self.packet_times.append(now)
+                    if len(self.packet_times) > 1:
+                        hz = len(self.packet_times) / (self.packet_times[-1] - self.packet_times[0])
+                        self.rate_label.setText(f"Rate: {hz:.1f} Hz")
+                                                
         except Exception as e:
             print(f"Stream Error: {e}")
+            self.alt_label.setText("Alt: ---m")
 
 if __name__ == "__main__":
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--enable-gpu-rasterization --ignore-gpu-blocklist"

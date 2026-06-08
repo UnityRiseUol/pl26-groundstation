@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="file:///home/plots/pl26-groundstation/leaflet.css" />
+    <script src="file:///home/plots/pl26-groundstation/leaflet.js"></script>
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #212b58; overflow: hidden; }
+        #map { width: 100vw; height: 100vh; background: #ccd; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        var map, rocketMarker, launchMarker, path;
+        var initialSet = false;
+
+        function initMap() {
+            try {
+                map = L.map('map').setView([0.0, 0.0], 2);
+                
+                // Directly parsing structural file layouts from Assets tree via file:/// scheme
+                L.tileLayer('file:////home/plots/pl26-groundstation/Assets/tiles/{z}/{x}/{y}.png', {
+                    maxZoom: 18,
+                    minZoom: 0,
+                    attribution: 'Offline Ground Station Maps'
+                }).addTo(map);
+
+                path = L.polyline([], {color: '#212b58', weight: 4}).addTo(map);
+                console.log("Map successfully initialized.");
+            } catch (e) {
+                console.log("Map Initialization Error: " + e);
+            }
+        }
+
+        window.updateMarker = function(lat, lon) {
+            try {
+                if (typeof map !== 'undefined' && map) {
+                    var newPos = [lat, lon];
+                    
+                    if (!initialSet) {
+                        map.setView(newPos, 16);
+                        
+                        launchMarker = L.circleMarker(newPos, {
+                            radius: 8, fillColor: "#ff0000", color: "#000", weight: 2, fillOpacity: 1
+                        }).addTo(map).bindPopup("Launch Site");
+
+                        rocketMarker = L.circleMarker(newPos, {
+                            radius: 10, fillColor: "#0078ff", color: "#ffffff", weight: 3, fillOpacity: 1
+                        }).addTo(map).bindPopup("Current Position");
+
+                        initialSet = true;
+                    }
+
+                    rocketMarker.setLatLng(newPos);
+                    path.addLatLng(newPos);
+                    map.panTo(newPos);
+                }
+            } catch(e) {
+                console.log("Execution Runtime Error: " + e);
+            }
+        };
+        
+        window.onload = initMap;
+    </script>
+</body>
+</html>
