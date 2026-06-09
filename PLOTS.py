@@ -378,18 +378,15 @@ class PLOTSGroundStation(QMainWindow):
 
         for cb in [self.combo_top, self.combo_bottom]:
             cb.setStyleSheet("color: white; background-color: #212b58; border-radius:5px; padding:3px;")
-
-        # FIX: Initialize the 2D plots with the dynamic variables immediately 
+ 
         v_top_init = self.combo_top.currentText()
         v_btm_init = self.combo_bottom.currentText()
         self.plot2D_top = PlotLive2D(f"{v_top_init} vs Time", ylabel=f"{v_top_init} ({DATA_MAP[v_top_init]})")
         self.plot2D_bottom = PlotLive2D(f"{v_btm_init} vs Time", ylabel=f"{v_btm_init} ({DATA_MAP[v_btm_init]})")
 
-        # FIX: Connect the UI signals so the graphs update immediately when dropdown is clicked!
         self.combo_top.currentTextChanged.connect(self.on_top_combo_changed)
         self.combo_bottom.currentTextChanged.connect(self.on_bottom_combo_changed)
 
-        # Color the left layout labels to blue
         lbl_top = QLabel("Top Graph Variable:")
         lbl_top.setFont(ui_font(11))
         lbl_top.setStyleSheet("color: #212b58;")
