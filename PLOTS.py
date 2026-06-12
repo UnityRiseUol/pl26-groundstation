@@ -87,16 +87,16 @@ DATA_MAP = {
 }
 
 class PlotLive2D(FigureCanvas):
-    def __init__(self, title, ylabel=None):
+    def __init__(self, title, ylabel=None, window_size=20.0):
         self.fig = Figure(figsize=(5, 3), facecolor='white')
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.times, self.values = [], []
+        self.window_size = window_size # Determines how many seconds to show
         
         self.ax.set_title(title, color='#212b58', fontweight='bold')
         self.ax.set_xlabel("Time (s)", color='#212b58', fontweight='bold') 
         
-        # Initialize Y-axis label right at startup
         if ylabel:
             self.ax.set_ylabel(ylabel, color='#212b58', fontweight='bold')
             
@@ -120,9 +120,15 @@ class PlotLive2D(FigureCanvas):
             
         self.line.set_data(self.times, self.values)
         
-        self.ax.set_xlim(min(self.times), max(self.times) + 0.1)
-        if self.values:
-            ymin, ymax = min(self.values), max(self.values)
+        # Calculate the rolling X-axis window limits
+        current_time = self.times[-1]
+        start_time = max(self.times[0], current_time - self.window_size)
+        self.ax.set_xlim(start_time, current_time + 0.1)
+        
+        # Dynamically scale the Y-axis based ONLY on the data visible in the current window
+        visible_values = [v for t, v in zip(self.times, self.values) if t >= start_time]
+        if visible_values:
+            ymin, ymax = min(visible_values), max(visible_values)
             padding = max((ymax - ymin) * 0.1, 1.0) 
             self.ax.set_ylim(ymin - padding, ymax + padding)
         
@@ -381,8 +387,10 @@ class PLOTSGroundStation(QMainWindow):
  
         v_top_init = self.combo_top.currentText()
         v_btm_init = self.combo_bottom.currentText()
-        self.plot2D_top = PlotLive2D(f"{v_top_init} vs Time", ylabel=f"{v_top_init} ({DATA_MAP[v_top_init]})")
-        self.plot2D_bottom = PlotLive2D(f"{v_btm_init} vs Time", ylabel=f"{v_btm_init} ({DATA_MAP[v_btm_init]})")
+        
+        # Setting a 20-second rolling window for the graphs
+        self.plot2D_top = PlotLive2D(f"{v_top_init} vs Time", ylabel=f"{v_top_init} ({DATA_MAP[v_top_init]})", window_size=20.0)
+        self.plot2D_bottom = PlotLive2D(f"{v_btm_init} vs Time", ylabel=f"{v_btm_init} ({DATA_MAP[v_btm_init]})", window_size=20.0)
 
         self.combo_top.currentTextChanged.connect(self.on_top_combo_changed)
         self.combo_bottom.currentTextChanged.connect(self.on_bottom_combo_changed)
