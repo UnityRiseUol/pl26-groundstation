@@ -1,7 +1,7 @@
 /*
  * File:        main.cpp
  * Receiver:    Adafruit Feather RP2040
- * Description: High Speed LoRa Receiver with Buffer Flushing
+ * Description: High Speed LoRa Receiver with Buffer Flushing (Flight Phase Added)
  */
 
 #include <Arduino.h>
@@ -20,13 +20,18 @@ struct __attribute__((packed)) TelemetryPacket {
     float lon;        
     float qR, qI, qJ, qK;         
     float insX, insY, insZ;       
+    int32_t flightPhase; // <-- Added to match the updated sender packet structure
 };
+
+// Compile-time guard to guarantee explicit length matching (48 bytes)
+static_assert(sizeof(TelemetryPacket) == 48, "TelemetryPacket must remain 48 bytes");
 
 unsigned long lastStatTime = 0;
 int packetCount = 0;
 TelemetryPacket currentPacket;
 
 void setup() {
+    Serial.begin(115200); // Standard hardware USB CDC
     Serial1.begin(115200);
     LoRa.setPins(RFM95_CS, RFM95_RST, RFM95_INT);
     
@@ -54,6 +59,7 @@ void loop() {
             packetCount++;
 
             // Print CSV (Millis, Alt, VSpd, Lat, Lon, Quats, INS_XYZ, RSSI)
+            // Note: flightPhase is successfully received in currentPacket but skipped here per request.
             Serial1.print(millis()); Serial1.print(",");
             Serial1.print(currentPacket.altitude, 2); Serial1.print(",");
             Serial1.print(currentPacket.vSpeed, 2); Serial1.print(",");
@@ -80,7 +86,7 @@ void loop() {
     // Rate Stats (Printed only if no packets coming through)
     if (millis() - lastStatTime >= 1000) {
         if (packetCount == 0) {
-            Serial.print(">>> RATE: 0 Hz (Check Sender) <<<");
+            Serial.println(">>> RATE: 0 Hz (Check Sender) <<<");
         } else {
             Serial.print("Rate: "); Serial.println(packetCount);
         }
