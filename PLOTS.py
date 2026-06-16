@@ -79,11 +79,11 @@ METRE_TO_FEET = 3.28084
 LAUNCH_LAT = 52.668
 LAUNCH_LON = -1.5245
 
-#Data mapping
+#Data mapping - Added Phase
 DATA_MAP = {
     "Lat": "deg", "Lon": "deg", "Alt": "ft", "Veloc": "m/s", 
     "qR": "float", "qI": "float", "qJ": "float", "qK": "float",
-    "insX": "m", "insY": "m", "insZ": "m", "RSSI": "dBm"
+    "insX": "m", "insY": "m", "insZ": "m", "Phase": "state", "RSSI": "dBm"
 }
 
 class PlotLive2D(FigureCanvas):
@@ -92,7 +92,7 @@ class PlotLive2D(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.times, self.values = [], []
-        self.window_size = window_size # Determines how many seconds to show
+        self.window_size = window_size 
         
         self.ax.set_title(title, color='#212b58', fontweight='bold')
         self.ax.set_xlabel("Time (s)", color='#212b58', fontweight='bold') 
@@ -120,12 +120,10 @@ class PlotLive2D(FigureCanvas):
             
         self.line.set_data(self.times, self.values)
         
-        # Calculate the rolling X-axis window limits
         current_time = self.times[-1]
         start_time = max(self.times[0], current_time - self.window_size)
         self.ax.set_xlim(start_time, current_time + 0.1)
         
-        # Dynamically scale the Y-axis based ONLY on the data visible in the current window
         visible_values = [v for t, v in zip(self.times, self.values) if t >= start_time]
         if visible_values:
             ymin, ymax = min(visible_values), max(visible_values)
@@ -342,7 +340,7 @@ class PLOTSGroundStation(QMainWindow):
             try:
                 with open(BACKUP_FILE_PATH, mode='w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(["System_Timestamp", "Mission_T", "Lat", "Lon", "Alt_m", "Veloc_m_s", "qR", "qI", "qJ", "qK", "insX", "insY", "insZ", "RSSI"])
+                    writer.writerow(["System_Timestamp", "Mission_T", "Lat", "Lon", "Alt_m", "Veloc_m_s", "qR", "qI", "qJ", "qK", "insX", "insY", "insZ", "Phase", "RSSI"])
             except: pass
 
         try:
@@ -388,7 +386,6 @@ class PLOTSGroundStation(QMainWindow):
         v_top_init = self.combo_top.currentText()
         v_btm_init = self.combo_bottom.currentText()
         
-        # Setting a 20-second rolling window for the graphs
         self.plot2D_top = PlotLive2D(f"{v_top_init} vs Time", ylabel=f"{v_top_init} ({DATA_MAP[v_top_init]})", window_size=20.0)
         self.plot2D_bottom = PlotLive2D(f"{v_btm_init} vs Time", ylabel=f"{v_btm_init} ({DATA_MAP[v_btm_init]})", window_size=20.0)
 
@@ -418,7 +415,7 @@ class PLOTSGroundStation(QMainWindow):
         self.image_label3 = QLabel()
         self.image_label3.setPixmap(QPixmap(LASER_LOGO_PATH).scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
-        self.phase_label = QLabel("Phase Of Flight: Test")
+        self.phase_label = QLabel("Phase Of Flight: WAITING")
         self.armed_label = QLabel("Status: Disarmed")
         self.alt_label = QLabel("Alt: --- ft")
         self.apogee_label = QLabel("Apogee: --- ft") 
@@ -522,7 +519,7 @@ class PLOTSGroundStation(QMainWindow):
 
         try:
             v = last_valid_line.split(",")
-            if len(v) != 13: 
+            if len(v) != 14: # Updated to 14 elements
                 return
 
             packet = {
@@ -538,19 +535,20 @@ class PLOTSGroundStation(QMainWindow):
                 "insX": float(v[9]),
                 "insY": float(v[10]),
                 "insZ": float(v[11]),
-                "RSSI": int(float(v[12].strip()))
+                "Phase": int(v[12]), # Added the flight phase parser
+                "RSSI": int(float(v[13].strip())) # Shifted RSSI index
             }
 
             self.last_packet_time = time.time() 
 
-            # CSV writes RAW hardware data (meters)
+            # CSV writes RAW hardware data + Phase (14 elements + Time)
             try:
                 with open(BACKUP_FILE_PATH, mode='a', newline='') as backup_file:
                     writer = csv.writer(backup_file)
                     writer.writerow([
                         time.time(), packet["T"], packet["Lat"], packet["Lon"], packet["Alt"],
                         packet["Veloc"], packet["qR"], packet["qI"], packet["qJ"], packet["qK"],
-                        packet["insX"], packet["insY"], packet["insZ"], packet["RSSI"]
+                        packet["insX"], packet["insY"], packet["insZ"], packet["Phase"], packet["RSSI"]
                     ])
             except: pass
 
@@ -578,26 +576,9 @@ class PLOTSGroundStation(QMainWindow):
                 else:
                     self.history[key].append(packet[key])
 
-            is_moving = abs(packet["Veloc"]) > 0.5
-            if not is_moving:
-                if self.max_alt < 10.0 and packet["Alt"] < 5.0:
-                    phase_val = "ON PAD (STATIONARY)"
-                elif self.max_alt > 20.0 and packet["Alt"] < 5.0:
-                    phase_val = "LANDED (STATIONARY)"
-                else:
-                    phase_val = "STATIONARY"
-            else:
-                last_alt_m = self.history["Alt"][-2] / METRE_TO_FEET if len(self.history["Alt"]) > 1 else packet["Alt"]
-                if packet["Alt"] < 5.0 and self.max_alt < 10.0:
-                    phase_val = "ON PAD (MOVING)"
-                elif packet["Alt"] > last_alt_m + 0.2:
-                    phase_val = "ASCENT"
-                elif packet["Alt"] < self.max_alt - 2.0 and packet["Alt"] > 5.0:
-                    phase_val = "DESCENT"
-                elif packet["Alt"] < 5.0 and self.max_alt > 20.0:
-                    phase_val = "LANDED"
-                else:
-                    phase_val = "COASTING"
+            # Direct mapping from the avionics flightPhase integer to the UI label
+            phase_dict = {0: "ON PAD", 1: "ASCENT", 2: "DESCENT", 3: "LANDED"}
+            phase_val = phase_dict.get(packet["Phase"], f"UNKNOWN ({packet['Phase']})")
             self.phase_label.setText(f"Phase Of Flight: {phase_val}")
 
             self.mapWidget.update_position(packet["Lat"], packet["Lon"])
