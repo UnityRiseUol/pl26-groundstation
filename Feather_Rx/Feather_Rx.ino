@@ -1,7 +1,7 @@
 /*
  * File:        main.cpp
  * Receiver:    Adafruit Feather RP2040
- * Description: High Speed LoRa Receiver with Buffer Flushing (Flight Phase Added)
+ * Description: High Speed LoRa Receiver with Buffer Flushing (Flight Phase + Dual Output)
  */
 
 #include <Arduino.h>
@@ -20,10 +20,9 @@ struct __attribute__((packed)) TelemetryPacket {
     float lon;        
     float qR, qI, qJ, qK;         
     float insX, insY, insZ;       
-    int32_t flightPhase; // <-- Added to match the updated sender packet structure
+    int32_t flightPhase;
 };
 
-// Compile-time guard to guarantee explicit length matching (48 bytes)
 static_assert(sizeof(TelemetryPacket) == 48, "TelemetryPacket must remain 48 bytes");
 
 unsigned long lastStatTime = 0;
@@ -32,7 +31,7 @@ TelemetryPacket currentPacket;
 
 void setup() {
     Serial.begin(115200); // Standard hardware USB CDC
-    Serial1.begin(115200);
+    Serial1.begin(115200); // Hardware TX/RX pins
     LoRa.setPins(RFM95_CS, RFM95_RST, RFM95_INT);
     
     if (!LoRa.begin(BAND)) {
@@ -58,8 +57,9 @@ void loop() {
             LoRa.readBytes((uint8_t*)&currentPacket, sizeof(currentPacket));
             packetCount++;
 
-            // Print CSV (Millis, Alt, VSpd, Lat, Lon, Quats, INS_XYZ, RSSI)
-            // Note: flightPhase is successfully received in currentPacket but skipped here per request.
+            // ------------------------------------------------------------------
+            // 1. Output to Raspberry Pi via Jumper Wires (Serial1)
+            // ------------------------------------------------------------------
             Serial1.print(millis()); Serial1.print(",");
             Serial1.print(currentPacket.altitude, 2); Serial1.print(",");
             Serial1.print(currentPacket.vSpeed, 2); Serial1.print(",");
@@ -72,7 +72,26 @@ void loop() {
             Serial1.print(currentPacket.insX, 2); Serial1.print(",");
             Serial1.print(currentPacket.insY, 2); Serial1.print(",");
             Serial1.print(currentPacket.insZ, 2); Serial1.print(",");
+            Serial1.print(currentPacket.flightPhase); Serial1.print(","); // <-- Flight Phase Included
             Serial1.println(LoRa.packetRssi());
+
+            // ------------------------------------------------------------------
+            // 2. Output to Computer/Pi via USB Cable (Serial)
+            // ------------------------------------------------------------------
+            Serial.print(millis()); Serial.print(",");
+            Serial.print(currentPacket.altitude, 2); Serial.print(",");
+            Serial.print(currentPacket.vSpeed, 2); Serial.print(",");
+            Serial.print(currentPacket.lat, 6); Serial.print(",");
+            Serial.print(currentPacket.lon, 6); Serial.print(",");
+            Serial.print(currentPacket.qR, 4); Serial.print(",");
+            Serial.print(currentPacket.qI, 4); Serial.print(",");
+            Serial.print(currentPacket.qJ, 4); Serial.print(",");
+            Serial.print(currentPacket.qK, 4); Serial.print(",");
+            Serial.print(currentPacket.insX, 2); Serial.print(",");
+            Serial.print(currentPacket.insY, 2); Serial.print(",");
+            Serial.print(currentPacket.insZ, 2); Serial.print(",");
+            Serial.print(currentPacket.flightPhase); Serial.print(","); // <-- Flight Phase Included
+            Serial.println(LoRa.packetRssi());
         } 
         else {
             // BUFFER FLUSH: Prevents the "255" ghosting issue
@@ -86,8 +105,10 @@ void loop() {
     // Rate Stats (Printed only if no packets coming through)
     if (millis() - lastStatTime >= 1000) {
         if (packetCount == 0) {
+            // Print warning to USB only so it doesn't break the Pi's CSV parser
             Serial.println(">>> RATE: 0 Hz (Check Sender) <<<");
         } else {
+            // Print rate to USB only
             Serial.print("Rate: "); Serial.println(packetCount);
         }
         packetCount = 0;
